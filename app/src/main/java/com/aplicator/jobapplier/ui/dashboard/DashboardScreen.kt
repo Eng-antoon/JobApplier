@@ -165,18 +165,18 @@ fun DashboardScreen(
                 item {
                     SaasCard(
                         modifier = Modifier.fillMaxWidth(),
-                        containerColor = MaterialTheme.colorScheme.primary,
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
                     ) {
                         Text(
                             "Your job search command center",
                             style = MaterialTheme.typography.titleLarge,
-                            color = MaterialTheme.colorScheme.onPrimary,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
                             fontWeight = FontWeight.Bold,
                         )
                         Text(
                             "Prioritize high-match roles and keep copy-ready application material close.",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.78f),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }

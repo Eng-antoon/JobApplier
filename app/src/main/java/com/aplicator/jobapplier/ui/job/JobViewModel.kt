@@ -191,7 +191,7 @@ class JobViewModel @Inject constructor(
             val result = when (contentType) {
                 "cover_letter" -> aiRepository.generateCoverLetter(job.rawText, profile.toPromptText(), tone, null)
                 "cover_email" -> aiRepository.generateCoverEmail(job.rawText, profile.toPromptText(), tone)
-                "custom_question", "why_work_here", "strengths", "weaknesses", "motivation" ->
+                "headline", "custom_question", "why_work_here", "strengths", "weaknesses", "motivation" ->
                     aiRepository.answerQuestion(question ?: contentType, contentType, job.rawText, profile.toPromptText())
                 else -> aiRepository.generateCoverLetter(job.rawText, profile.toPromptText(), tone, null)
             }

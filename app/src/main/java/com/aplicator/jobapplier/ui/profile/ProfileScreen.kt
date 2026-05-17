@@ -283,7 +283,7 @@ fun ProfileScreen(
 private fun ProfileHeader(profile: Profile?, completeness: Int) {
     SaasCard(
         modifier = Modifier.fillMaxWidth(),
-        containerColor = MaterialTheme.colorScheme.primary,
+        containerColor = MaterialTheme.colorScheme.primaryContainer,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
@@ -297,7 +297,7 @@ private fun ProfileHeader(profile: Profile?, completeness: Int) {
                     Box(contentAlignment = Alignment.Center) {
                         Text(
                             profile?.fullName?.firstOrNull()?.uppercase() ?: "J",
-                            color = MaterialTheme.colorScheme.onPrimary,
+                            color = MaterialTheme.colorScheme.onSecondary,
                             style = MaterialTheme.typography.headlineMedium,
                             fontWeight = FontWeight.Bold,
                         )
@@ -305,16 +305,16 @@ private fun ProfileHeader(profile: Profile?, completeness: Int) {
                 }
             }
             Column(Modifier.weight(1f).padding(start = 14.dp)) {
-                Text(profile?.fullName?.ifBlank { "Your profile" } ?: "Your profile", color = MaterialTheme.colorScheme.onPrimary, style = MaterialTheme.typography.titleLarge)
-                Text(profile?.desiredRole ?: "Add a desired role", color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.72f), style = MaterialTheme.typography.bodyMedium)
+                Text(profile?.fullName?.ifBlank { "Your profile" } ?: "Your profile", color = MaterialTheme.colorScheme.onPrimaryContainer, style = MaterialTheme.typography.titleLarge)
+                Text(profile?.desiredRole ?: "Add a desired role", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
                 Spacer(Modifier.height(10.dp))
                 LinearProgressIndicator(
                     progress = { completeness / 100f },
                     modifier = Modifier.fillMaxWidth().height(8.dp).clip(CircleShape),
                     color = AccentTeal,
-                    trackColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.16f),
+                    trackColor = MaterialTheme.colorScheme.surface,
                 )
-                Text("$completeness% complete", color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f), style = MaterialTheme.typography.labelSmall)
+                Text("$completeness% complete", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
             }
         }
     }

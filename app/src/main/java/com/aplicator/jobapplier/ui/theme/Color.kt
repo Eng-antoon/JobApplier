@@ -3,10 +3,10 @@ package com.aplicator.jobapplier.ui.theme
 import androidx.compose.ui.graphics.Color
 
 // Modern productivity SaaS color palette
-val Primary = Color(0xFF12324A)
+val Primary = Color(0xFF1D4ED8)
 val OnPrimary = Color(0xFFFFFFFF)
-val PrimaryContainer = Color(0xFFDCEBFA)
-val OnPrimaryContainer = Color(0xFF071C2B)
+val PrimaryContainer = Color(0xFFE8F1FF)
+val OnPrimaryContainer = Color(0xFF102A56)
 
 val Secondary = Color(0xFF0F766E)
 val OnSecondary = Color(0xFFFFFFFF)
@@ -23,12 +23,12 @@ val OnError = Color(0xFFFFFFFF)
 val ErrorContainer = Color(0xFFF9DEDC)
 val OnErrorContainer = Color(0xFF410E0B)
 
-val Background = Color(0xFFF6F8FB)
+val Background = Color(0xFFFAFCFF)
 val OnBackground = Color(0xFF111827)
 val Surface = Color(0xFFFFFFFF)
 val OnSurface = Color(0xFF111827)
-val SurfaceVariant = Color(0xFFEFF4F8)
-val OnSurfaceVariant = Color(0xFF5B6472)
+val SurfaceVariant = Color(0xFFF2F6FA)
+val OnSurfaceVariant = Color(0xFF4F5F73)
 
 // Dark theme
 val DarkPrimary = Color(0xFF8CC8FF)

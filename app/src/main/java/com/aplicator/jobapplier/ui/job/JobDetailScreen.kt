@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.QuestionAnswer
+import androidx.compose.material.icons.filled.Title
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -67,7 +68,10 @@ import com.aplicator.jobapplier.ui.components.SaasSecondaryButton
 import com.aplicator.jobapplier.ui.components.SelectableSaasChip
 import com.aplicator.jobapplier.ui.components.ShimmerJobCard
 import com.aplicator.jobapplier.ui.components.StatusPill
+import com.aplicator.jobapplier.ui.components.defaultAiFillActions
+import com.aplicator.jobapplier.ui.components.generatedContentLabel
 import com.aplicator.jobapplier.ui.components.scoreColor
+import com.aplicator.jobapplier.ui.theme.AccentCyan
 import com.aplicator.jobapplier.ui.theme.MatchHigh
 import com.aplicator.jobapplier.ui.theme.MatchLow
 
@@ -131,13 +135,13 @@ fun JobDetailScreen(
             ) {
                 SaasCard(
                     modifier = Modifier.fillMaxWidth(),
-                    containerColor = MaterialTheme.colorScheme.primary,
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         CompanyAvatar(job.companyName)
                         Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
-                            Text(job.companyName, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onPrimary)
-                            Text(job.roleTitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.72f))
+                            Text(job.companyName, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                            Text(job.roleTitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Spacer(Modifier.height(8.dp))
                             StatusPill(job.status)
                         }
@@ -167,9 +171,9 @@ fun JobDetailScreen(
                 }
 
                 SaasCard(Modifier.fillMaxWidth()) {
-                    Text("Generate tailored content", style = MaterialTheme.typography.titleMedium)
+                    Text("AI Fill Assistant", style = MaterialTheme.typography.titleMedium)
                     Text(
-                        "Choose a tone and generate reusable copy for this role.",
+                        "Generate the text you need to fill applications automatically for this role.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -184,37 +188,32 @@ fun JobDetailScreen(
                         }
                     }
                     Spacer(Modifier.height(14.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        SaasPrimaryButton(
-                            onClick = { viewModel.generateContent(jobId, "cover_letter", selectedTone) },
-                            enabled = !generateState.isGenerating,
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            Icon(Icons.Default.Description, contentDescription = null, modifier = Modifier.size(17.dp))
-                            Text("Letter", modifier = Modifier.padding(start = 6.dp))
+                    defaultAiFillActions().forEach { action ->
+                        val isPrimary = action.contentType == "cover_email" || action.contentType == "cover_letter"
+                        val icon = when (action.contentType) {
+                            "cover_email" -> Icons.Default.Email
+                            "cover_letter" -> Icons.Default.Description
+                            "headline" -> Icons.Default.Title
+                            else -> Icons.Default.QuestionAnswer
                         }
-                        SaasPrimaryButton(
-                            onClick = { viewModel.generateContent(jobId, "cover_email", selectedTone) },
-                            enabled = !generateState.isGenerating,
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            Icon(Icons.Default.Email, contentDescription = null, modifier = Modifier.size(17.dp))
-                            Text("Email", modifier = Modifier.padding(start = 6.dp))
-                        }
-                    }
-                    Spacer(Modifier.height(10.dp))
-                    listOf(
-                        "why_work_here" to "Why do you want to work here?",
-                        "strengths" to "What are your strengths?",
-                        "motivation" to "Tell me about yourself",
-                    ).forEach { (type, label) ->
-                        SaasSecondaryButton(
-                            onClick = { viewModel.generateContent(jobId, type, selectedTone, label) },
-                            enabled = !generateState.isGenerating,
-                            modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
-                        ) {
-                            Icon(Icons.Default.QuestionAnswer, contentDescription = null, modifier = Modifier.size(17.dp))
-                            Text(label, modifier = Modifier.padding(start = 8.dp))
+                        if (isPrimary) {
+                            SaasPrimaryButton(
+                                onClick = { viewModel.generateContent(jobId, action.contentType, selectedTone, action.question) },
+                                enabled = !generateState.isGenerating,
+                                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                            ) {
+                                Icon(icon, contentDescription = null, modifier = Modifier.size(17.dp))
+                                Text(action.label, modifier = Modifier.padding(start = 8.dp))
+                            }
+                        } else {
+                            SaasSecondaryButton(
+                                onClick = { viewModel.generateContent(jobId, action.contentType, selectedTone, action.question) },
+                                enabled = !generateState.isGenerating,
+                                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                            ) {
+                                Icon(icon, contentDescription = null, modifier = Modifier.size(17.dp), tint = AccentCyan)
+                                Text(action.label, modifier = Modifier.padding(start = 8.dp))
+                            }
                         }
                     }
                     Spacer(Modifier.height(10.dp))
@@ -263,7 +262,7 @@ fun JobDetailScreen(
                     Text("Saved content", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                     detailState.generatedContent.forEach { content ->
                         CopyCard(
-                            label = content.contentType.replace("_", " ").replaceFirstChar { it.uppercase() },
+                            label = generatedContentLabel(content.contentType),
                             value = content.content.take(220) + if (content.content.length > 220) "..." else "",
                             accent = scoreColor(job.matchScore ?: 0),
                             onClick = { copyToClipboard(content.contentType, content.content) },

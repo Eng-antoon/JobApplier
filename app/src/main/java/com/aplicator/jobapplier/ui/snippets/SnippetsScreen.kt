@@ -144,16 +144,16 @@ fun SnippetsScreen(profileViewModel: ProfileViewModel) {
                 item {
                     SaasCard(
                         modifier = Modifier.fillMaxWidth(),
-                        containerColor = MaterialTheme.colorScheme.primary,
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.ContentCopy, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary)
+                            Icon(Icons.Default.ContentCopy, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                             Column(Modifier.padding(start = 12.dp)) {
-                                Text("Application snippets", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onPrimary)
+                                Text("Application snippets", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
                                 Text(
                                     "Search, copy, or launch the floating bubble for other apps.",
                                     style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.75f),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
                         }

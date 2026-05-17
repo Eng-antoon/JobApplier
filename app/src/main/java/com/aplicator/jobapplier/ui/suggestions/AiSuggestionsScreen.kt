@@ -105,15 +105,15 @@ private fun SuggestionsContent(suggestions: AiSuggestionsResponse) {
         item {
             SaasCard(
                 modifier = Modifier.fillMaxWidth(),
-                containerColor = MaterialTheme.colorScheme.primary,
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
             ) {
-                Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary)
+                Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.height(10.dp))
-                Text("Profile intelligence", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onPrimary)
+                Text("Profile intelligence", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
                 Text(
                     "Use these suggestions to improve your profile and application copy.",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.75f),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
