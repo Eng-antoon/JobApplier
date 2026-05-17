@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="128dp"
+    android:height="128dp"
+    android:viewportWidth="128"
+    android:viewportHeight="128">
+    <!-- Briefcase outline (dashed feel) -->
+    <path
+        android:fillColor="#FFE8F5E9"
+        android:pathData="M24,52 L104,52 C107.3,52 110,54.7 110,58 L110,100 C110,103.3 107.3,106 104,106 L24,106 C20.7,106 18,103.3 18,100 L18,58 C18,54.7 20.7,52 24,52 Z" />
+    <!-- Briefcase border -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:pathData="M24,52 L104,52 C107.3,52 110,54.7 110,58 L110,100 C110,103.3 107.3,106 104,106 L24,106 C20.7,106 18,103.3 18,100 L18,58 C18,54.7 20.7,52 24,52 Z"
+        android:strokeWidth="2.5"
+        android:strokeColor="#FF81C784" />
+    <!-- Handle -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:pathData="M46,52 L46,42 C46,38.7 48.7,36 52,36 L76,36 C79.3,36 82,38.7 82,42 L82,52"
+        android:strokeWidth="2.5"
+        android:strokeColor="#FF81C784" />
+    <!-- Center line -->
+    <path
+        android:fillColor="#FFC8E6C9"
+        android:pathData="M18,74 L110,74 L110,78 L18,78 Z" />
+    <!-- Sparkle top-right -->
+    <path
+        android:fillColor="#FF2E7D32"
+        android:pathData="M98,30 L100,24 L102,30 L108,32 L102,34 L100,40 L98,34 L92,32 Z" />
+    <!-- Sparkle top-left small -->
+    <path
+        android:fillColor="#FF81C784"
+        android:pathData="M32,28 L33,24 L34,28 L38,29 L34,30 L33,34 L32,30 L28,29 Z" />
+    <!-- Plus icon in center -->
+    <path
+        android:fillColor="#FF2E7D32"
+        android:pathData="M62,70 L66,70 L66,82 L62,82 Z" />
+    <path
+        android:fillColor="#FF2E7D32"
+        android:pathData="M58,74 L70,74 L70,78 L58,78 Z" />
+</vector>

@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="128dp"
+    android:height="128dp"
+    android:viewportWidth="128"
+    android:viewportHeight="128">
+    <!-- Clipboard background -->
+    <path
+        android:fillColor="#FFE8F5E9"
+        android:pathData="M36,24 L92,24 C95.3,24 98,26.7 98,30 L98,108 C98,111.3 95.3,114 92,114 L36,114 C32.7,114 30,111.3 30,108 L30,30 C30,26.7 32.7,24 36,24 Z" />
+    <!-- Clipboard border -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:pathData="M36,24 L92,24 C95.3,24 98,26.7 98,30 L98,108 C98,111.3 95.3,114 92,114 L36,114 C32.7,114 30,111.3 30,108 L30,30 C30,26.7 32.7,24 36,24 Z"
+        android:strokeWidth="2.5"
+        android:strokeColor="#FF81C784" />
+    <!-- Clipboard clip at top -->
+    <path
+        android:fillColor="#FF2E7D32"
+        android:pathData="M52,18 L76,18 C78.2,18 80,19.8 80,22 L80,30 C80,32.2 78.2,34 76,34 L52,34 C49.8,34 48,32.2 48,30 L48,22 C48,19.8 49.8,18 52,18 Z" />
+    <!-- Content lines -->
+    <path
+        android:fillColor="#FFC8E6C9"
+        android:pathData="M42,48 L86,48 L86,52 L42,52 Z" />
+    <path
+        android:fillColor="#FFC8E6C9"
+        android:pathData="M42,60 L78,60 L78,64 L42,64 Z" />
+    <path
+        android:fillColor="#FFC8E6C9"
+        android:pathData="M42,72 L82,72 L82,76 L42,76 Z" />
+    <path
+        android:fillColor="#FFC8E6C9"
+        android:pathData="M42,84 L70,84 L70,88 L42,88 Z" />
+    <!-- Copy icon overlay (bottom-right) -->
+    <path
+        android:fillColor="#FF2E7D32"
+        android:pathData="M82,88 L100,88 C102.2,88 104,89.8 104,92 L104,110 C104,112.2 102.2,114 100,114 L82,114 C79.8,114 78,112.2 78,110 L78,92 C78,89.8 79.8,88 82,88 Z" />
+    <!-- Copy icon inner -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M84,94 L96,94 C97.1,94 98,94.9 98,96 L98,108 C98,109.1 97.1,110 96,110 L84,110 C82.9,110 82,109.1 82,108 L82,96 C82,94.9 82.9,94 84,94 Z"
+        android:strokeWidth="1.5"
+        android:strokeColor="#FFFFFFFF" />
+    <path
+        android:fillColor="@android:color/transparent"
+        android:pathData="M86,92 L100,92 C101.1,92 102,92.9 102,94 L102,106"
+        android:strokeWidth="1.5"
+        android:strokeColor="#FFFFFFFF" />
+</vector>

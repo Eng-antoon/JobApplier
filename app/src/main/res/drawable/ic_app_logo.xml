@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="96dp"
+    android:height="96dp"
+    android:viewportWidth="96"
+    android:viewportHeight="96">
+    <!-- Briefcase body -->
+    <path
+        android:fillColor="#FF1B5E20"
+        android:pathData="M16,36 L80,36 C82.2,36 84,37.8 84,40 L84,76 C84,78.2 82.2,80 80,80 L16,80 C13.8,80 12,78.2 12,76 L12,40 C12,37.8 13.8,36 16,36 Z" />
+    <!-- Briefcase handle -->
+    <path
+        android:fillColor="#FF1B5E20"
+        android:pathData="M36,36 L36,28 C36,25.8 37.8,24 40,24 L56,24 C58.2,24 60,25.8 60,28 L60,36"
+        android:strokeWidth="3"
+        android:strokeColor="#FF1B5E20" />
+    <!-- Briefcase clasp/center line -->
+    <path
+        android:fillColor="#FFA5D6A7"
+        android:pathData="M12,52 L84,52 L84,56 L12,56 Z" />
+    <!-- Upward arrow (career growth) -->
+    <path
+        android:fillColor="#FFA5D6A7"
+        android:pathData="M48,16 L56,26 L51,26 L51,46 L45,46 L45,26 L40,26 Z" />
+    <!-- Briefcase center badge -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M44,50 L52,50 C53.1,50 54,50.9 54,52 L54,56 C54,57.1 53.1,58 52,58 L44,58 C42.9,58 42,57.1 42,56 L42,52 C42,50.9 42.9,50 44,50 Z" />
+</vector>
