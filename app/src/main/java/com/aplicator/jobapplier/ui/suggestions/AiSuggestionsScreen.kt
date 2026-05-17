@@ -26,11 +26,16 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -48,23 +53,28 @@ import com.aplicator.jobapplier.ui.components.SaasScreenBackground
 import com.aplicator.jobapplier.ui.theme.AccentAmber
 import com.aplicator.jobapplier.ui.theme.AccentCyan
 import com.aplicator.jobapplier.ui.theme.AccentTeal
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AiSuggestionsScreen(viewModel: AiSuggestionsViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsState()
+    val snackbarHostState = remember { SnackbarHostState() }
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        TopAppBar(
-            title = { Text("AI coach", fontWeight = FontWeight.Bold) },
-            actions = {
-                IconButton(onClick = { viewModel.refresh() }) {
-                    Icon(Icons.Default.Refresh, contentDescription = "Refresh")
-                }
-            },
-        )
-
-        SaasScreenBackground(Modifier.fillMaxSize()) {
+    Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+        topBar = {
+            TopAppBar(
+                title = { Text("AI coach", fontWeight = FontWeight.Bold) },
+                actions = {
+                    IconButton(onClick = { viewModel.refresh() }) {
+                        Icon(Icons.Default.Refresh, contentDescription = "Refresh")
+                    }
+                },
+            )
+        },
+    ) { padding ->
+        SaasScreenBackground(Modifier.fillMaxSize().padding(padding)) {
             when (val currentState = state) {
                 is SuggestionsState.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     PremiumLoadingIndicator(message = "Analyzing your profile...")
@@ -81,7 +91,7 @@ fun AiSuggestionsScreen(viewModel: AiSuggestionsViewModel = hiltViewModel()) {
                     icon = Icons.Default.AutoAwesome,
                     modifier = Modifier.fillMaxSize(),
                 )
-                is SuggestionsState.Success -> SuggestionsContent(currentState.suggestions)
+                is SuggestionsState.Success -> SuggestionsContent(currentState.suggestions, snackbarHostState)
             }
         }
     }
@@ -89,13 +99,18 @@ fun AiSuggestionsScreen(viewModel: AiSuggestionsViewModel = hiltViewModel()) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun SuggestionsContent(suggestions: AiSuggestionsResponse) {
+private fun SuggestionsContent(
+    suggestions: AiSuggestionsResponse,
+    snackbarHostState: SnackbarHostState,
+) {
     val context = LocalContext.current
     val view = LocalView.current
+    val scope = rememberCoroutineScope()
     fun copy(label: String, value: String) {
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         clipboard.setPrimaryClip(ClipData.newPlainText(label, value))
         view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+        scope.launch { snackbarHostState.showSnackbar("Copied: $label") }
     }
 
     LazyColumn(

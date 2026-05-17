@@ -40,7 +40,7 @@ const MAX_TOKENS_MAP: Record<string, number> = {
   detect_new_data: 1000,
   parse_resume: 8192,
   generate_suggestions: 4000,
-  fetch_job_url: 2000,
+  fetch_job_url: 4000,
 };
 
 async function callGemini(prompt: string, action: string): Promise<GeminiResponse> {
@@ -260,6 +260,36 @@ function cleanJsonResponse(text: string): string {
   return cleaned;
 }
 
+function extractDescriptionFromHtml(html: string): string | null {
+  const patterns = [
+    /class="show-more-less-html__markup[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
+    /class="description__text[^"]*"[^>]*>([\s\S]*?)<\/section>/i,
+    /class="jobs-description-content__text[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
+    /class="jobs-box__html-content[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
+    /class="job-description[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
+    /class="jobsearch-JobComponent-description[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
+  ];
+  for (const pattern of patterns) {
+    const match = html.match(pattern);
+    if (match?.[1]) {
+      const text = match[1]
+        .replace(/<br\s*\/?>/gi, "\n")
+        .replace(/<\/?(p|li|ul|ol|div|h[1-6])[^>]*>/gi, "\n")
+        .replace(/<[^>]+>/g, "")
+        .replace(/&amp;/g, "&")
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/&nbsp;/g, " ")
+        .replace(/\n{3,}/g, "\n\n")
+        .trim();
+      if (text.length > 100) return text;
+    }
+  }
+  return null;
+}
+
 async function handleFetchJobUrl(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
   const url = payload.url as string;
   if (!url) return { success: false, reason: "url is required" };
@@ -267,9 +297,12 @@ async function handleFetchJobUrl(payload: Record<string, unknown>): Promise<Reco
   try {
     const response = await fetch(url, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.5",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
       },
       redirect: "follow",
     });
@@ -280,8 +313,46 @@ async function handleFetchJobUrl(payload: Record<string, unknown>): Promise<Reco
 
     const html = await response.text();
 
-    if (html.length < 500 || html.includes("authwall") || html.includes("sign in to")) {
-      return { success: false, reason: "blocked_by_auth" };
+    const lowerHtml = html.toLowerCase();
+    const blockedPatterns = [
+      "authwall", "sign in to", "login_required",
+      "please log in", "join now to see", "sign up to view",
+      "create an account", "verify you're not a robot",
+    ];
+    if (html.length < 500 || blockedPatterns.some(p => lowerHtml.includes(p))) {
+      return {
+        success: false,
+        reason: "blocked_by_auth",
+        hint: "This job post requires sign-in. Copy and paste the job description directly.",
+      };
+    }
+
+    // Try JSON-LD extraction first (LinkedIn and many job boards embed structured data)
+    const jsonLdMatches = html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g);
+    for (const match of jsonLdMatches) {
+      try {
+        const ld = JSON.parse(match[1]);
+        const posting = ld["@type"] === "JobPosting" ? ld
+          : Array.isArray(ld["@graph"]) ? ld["@graph"].find((n: Record<string, unknown>) => n["@type"] === "JobPosting")
+          : null;
+        if (posting) {
+          const orgName = typeof posting.hiringOrganization === "string"
+            ? posting.hiringOrganization
+            : posting.hiringOrganization?.name ?? "";
+          const htmlDescription = extractDescriptionFromHtml(html);
+          const jsonLdDesc = (posting.description || "") as string;
+          const description = (htmlDescription && htmlDescription.length > jsonLdDesc.length)
+            ? htmlDescription
+            : jsonLdDesc;
+          return {
+            success: true,
+            title: posting.title || posting.name || "",
+            company: orgName,
+            description,
+            requirements: [],
+          };
+        }
+      } catch { /* try next match or fall through to AI */ }
     }
 
     const extractPrompt = `Extract job posting details from this HTML content. Respond with ONLY valid JSON (no markdown):
@@ -289,15 +360,17 @@ async function handleFetchJobUrl(payload: Record<string, unknown>): Promise<Reco
   "success": true,
   "title": "job title",
   "company": "company name",
-  "description": "full job description text",
+  "description": "full job description - include ALL sections: overview, responsibilities, qualifications, requirements, benefits, about the company. Do NOT truncate or summarize.",
   "requirements": ["requirement 1", "requirement 2"]
 }
 
 If the HTML does not contain a valid job posting, respond with:
 { "success": false, "reason": "no_job_content" }
 
+IMPORTANT: Extract the COMPLETE and FULL description with every section of the job posting. For LinkedIn pages, look for content in elements with classes like "description__text", "show-more-less-html", "jobs-description-content__text", or "jobs-box__html-content". For Indeed, look for "jobsearch-JobComponent-description". Include ALL text, not just the first paragraph.
+
 HTML CONTENT (truncated):
-${html.substring(0, 15000)}`;
+${html.substring(0, 80000)}`;
 
     const geminiResult = await callGemini(extractPrompt, "fetch_job_url");
     const text = geminiResult.candidates?.[0]?.content?.parts?.[0]?.text ?? "";

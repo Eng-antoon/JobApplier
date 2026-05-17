@@ -50,6 +50,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.aplicator.jobapplier.domain.model.Certification
+import com.aplicator.jobapplier.domain.model.Education
+import com.aplicator.jobapplier.domain.model.Language
+import com.aplicator.jobapplier.domain.model.Profile
+import com.aplicator.jobapplier.domain.model.Skill
+import com.aplicator.jobapplier.domain.model.WorkExperience
 import com.aplicator.jobapplier.service.BubbleOverlayService
 import com.aplicator.jobapplier.ui.components.CopyCard
 import com.aplicator.jobapplier.ui.components.EmptyState
@@ -220,8 +226,22 @@ private fun categoryColor(category: String): Color = when {
 }
 
 private fun buildSnippets(state: ProfileUiState): List<SnippetItem> {
+    val profile = state.profile ?: return emptyList()
+    return buildSnippets(
+        profile, state.skills, state.experiences,
+        state.educationList, state.certifications, state.languages,
+    )
+}
+
+fun buildSnippets(
+    profile: Profile,
+    skills: List<Skill>,
+    experiences: List<WorkExperience>,
+    educationList: List<Education>,
+    certifications: List<Certification>,
+    languages: List<Language>,
+): List<SnippetItem> {
     val snippets = mutableListOf<SnippetItem>()
-    val profile = state.profile ?: return snippets
 
     if (profile.fullName.isNotBlank()) snippets.add(SnippetItem("personal", "Full Name", profile.fullName))
     profile.email?.let { snippets.add(SnippetItem("personal", "Email", it)) }
@@ -231,7 +251,7 @@ private fun buildSnippets(state: ProfileUiState): List<SnippetItem> {
     profile.desiredRole?.let { snippets.add(SnippetItem("personal", "Desired Role", it)) }
     profile.portfolioUrl?.let { snippets.add(SnippetItem("personal", "Portfolio", it)) }
 
-    state.skills.forEach { skill ->
+    skills.forEach { skill ->
         val value = buildString {
             append(skill.name)
             skill.yearsExperience?.let { append(" - $it years") }
@@ -240,7 +260,7 @@ private fun buildSnippets(state: ProfileUiState): List<SnippetItem> {
         snippets.add(SnippetItem("skills", skill.name, value))
     }
 
-    state.experiences.forEach { exp ->
+    experiences.forEach { exp ->
         val groupName = "${exp.title} at ${exp.company}"
         val dates = "${exp.startDate ?: "N/A"} - ${exp.endDate ?: "Present"}"
         snippets.add(SnippetItem(groupName, "Role & Period", "$groupName ($dates)"))
@@ -250,13 +270,13 @@ private fun buildSnippets(state: ProfileUiState): List<SnippetItem> {
         }
     }
 
-    state.educationList.forEach { edu ->
+    educationList.forEach { edu ->
         snippets.add(SnippetItem("education", edu.degree, "${edu.degree}${edu.fieldOfStudy?.let { " in $it" } ?: ""} from ${edu.institution}"))
     }
-    state.languages.forEach { lang ->
+    languages.forEach { lang ->
         snippets.add(SnippetItem("languages", lang.name, "${lang.name}${lang.proficiency?.let { " ($it)" } ?: ""}"))
     }
-    state.certifications.forEach { cert ->
+    certifications.forEach { cert ->
         snippets.add(SnippetItem("certifications", cert.name, "${cert.name} - ${cert.issuingOrg}${cert.issueDate?.let { " ($it)" } ?: ""}"))
     }
     profile.summary?.let { snippets.add(SnippetItem("summary", "Professional Summary", it)) }

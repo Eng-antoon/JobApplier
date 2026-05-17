@@ -92,16 +92,7 @@ fun DashboardScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = {
-                    Column {
-                        Text("Applications", fontWeight = FontWeight.Bold)
-                        Text(
-                            "Track, analyze, and apply faster",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                },
+                title = { Text("Applications", fontWeight = FontWeight.Bold) },
                 actions = {
                     IconButton(
                         onClick = {
@@ -167,13 +158,13 @@ fun DashboardScreen(
                         containerColor = MaterialTheme.colorScheme.primaryContainer,
                     ) {
                         Text(
-                            "Your job search command center",
+                            "Application tracker",
                             style = MaterialTheme.typography.titleLarge,
                             color = MaterialTheme.colorScheme.onPrimaryContainer,
                             fontWeight = FontWeight.Bold,
                         )
                         Text(
-                            "Prioritize high-match roles and keep copy-ready application material close.",
+                            "Track roles, review match quality, and keep application copy close.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )

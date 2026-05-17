@@ -48,6 +48,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -74,6 +75,7 @@ import com.aplicator.jobapplier.ui.components.scoreColor
 import com.aplicator.jobapplier.ui.theme.AccentCyan
 import com.aplicator.jobapplier.ui.theme.MatchHigh
 import com.aplicator.jobapplier.ui.theme.MatchLow
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -87,6 +89,7 @@ fun JobDetailScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
     val view = LocalView.current
+    val scope = rememberCoroutineScope()
     var customQuestion by rememberSaveable { mutableStateOf("") }
     var selectedTone by rememberSaveable { mutableStateOf("professional") }
 
@@ -99,6 +102,7 @@ fun JobDetailScreen(
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         clipboard.setPrimaryClip(ClipData.newPlainText(label, text))
         view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+        scope.launch { snackbarHostState.showSnackbar("Copied: $label") }
     }
 
     Scaffold(

@@ -85,4 +85,24 @@ class BubbleModelsTest {
         )
         assertEquals("86%", rows.first { it.label == "Match Score" }.value)
     }
+
+    @Test
+    fun expandedBubbleLayout_usesCompactResponsiveSheetAndKeepsOpenAfterCopy() {
+        val phoneLayout = expandedBubbleLayout(
+            screenWidthDp = 393,
+            screenHeightDp = 852,
+            statusBarDp = 24,
+        )
+        val tabletLayout = expandedBubbleLayout(
+            screenWidthDp = 840,
+            screenHeightDp = 1180,
+            statusBarDp = 24,
+        )
+
+        assertEquals(361, phoneLayout.widthDp)
+        assertEquals(664, phoneLayout.heightDp)
+        assertEquals(456, tabletLayout.widthDp)
+        assertEquals(880, tabletLayout.heightDp)
+        assertEquals(false, BubbleCopyBehavior.dismissPanelAfterCopy)
+    }
 }

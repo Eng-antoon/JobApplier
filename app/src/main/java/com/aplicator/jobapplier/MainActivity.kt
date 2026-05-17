@@ -82,7 +82,7 @@ private fun AppRoot(onReady: () -> Unit) {
     val sessionStatus by authViewModel.sessionStatus.collectAsState()
     val isOnboarded by authViewModel.isOnboarded.collectAsState()
 
-    val appState = when (sessionStatus) {
+    val rawAppState = when (sessionStatus) {
         is SessionStatus.Initializing -> AppState.Loading
         is SessionStatus.NotAuthenticated, is SessionStatus.RefreshFailure -> AppState.Auth
         is SessionStatus.Authenticated -> when (isOnboarded) {
@@ -90,6 +90,18 @@ private fun AppRoot(onReady: () -> Unit) {
             false -> AppState.Onboarding
             true -> AppState.Main
         }
+    }
+
+    // Prevent Main→Loading→Main oscillation on resume (session re-init / onboarding re-check)
+    // which would destroy and recreate MainNavGraph, losing all navigation state
+    var stableState by rememberSaveable { mutableStateOf<AppState?>(null) }
+    val appState = if (rawAppState == AppState.Loading && (stableState == AppState.Main || stableState == AppState.Onboarding)) {
+        stableState!!
+    } else {
+        rawAppState
+    }
+    if (appState != AppState.Loading) {
+        stableState = appState
     }
 
     var onboardingRoute by rememberSaveable { mutableStateOf("choice") }

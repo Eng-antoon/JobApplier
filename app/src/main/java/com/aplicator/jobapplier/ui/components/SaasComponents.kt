@@ -95,10 +95,10 @@ fun SaasCard(
     onClick: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    val shape = RoundedCornerShape(18.dp)
+    val shape = RoundedCornerShape(14.dp)
     val cardModifier = modifier
-        .shadow(5.dp, shape, ambientColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.04f))
-        .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f), shape)
+        .shadow(3.dp, shape, ambientColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.035f))
+        .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.62f), shape)
 
     if (onClick != null) {
         Card(
@@ -145,7 +145,7 @@ fun SaasPrimaryButton(
             scaleX = scale
             scaleY = scale
         },
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(12.dp),
         contentPadding = contentPadding,
         elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp),
         colors = ButtonDefaults.buttonColors(
@@ -167,7 +167,7 @@ fun SaasSecondaryButton(
         onClick = onClick,
         enabled = enabled,
         modifier = modifier,
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(12.dp),
         colors = ButtonDefaults.outlinedButtonColors(
             contentColor = MaterialTheme.colorScheme.primary,
         ),
@@ -190,7 +190,7 @@ fun SaasSearchField(
         placeholder = { Text(placeholder) },
         leadingIcon = leadingIcon,
         singleLine = true,
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(12.dp),
         colors = OutlinedTextFieldDefaults.colors(
             focusedContainerColor = MaterialTheme.colorScheme.surface,
             unfocusedContainerColor = MaterialTheme.colorScheme.surface,
@@ -295,7 +295,7 @@ fun CompanyAvatar(
     Box(
         modifier = modifier
             .size(46.dp)
-            .clip(RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(12.dp))
             .background(
                 Brush.linearGradient(
                     listOf(MaterialTheme.colorScheme.primary.copy(alpha = 0.92f), AccentTeal.copy(alpha = 0.92f)),
@@ -332,7 +332,7 @@ fun EmptyState(
         Box(
             modifier = Modifier
                 .size(96.dp)
-                .clip(RoundedCornerShape(28.dp))
+                .clip(RoundedCornerShape(22.dp))
                 .background(
                     Brush.linearGradient(
                         listOf(AccentCyan.copy(alpha = 0.18f), AccentTeal.copy(alpha = 0.18f)),

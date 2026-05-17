@@ -113,6 +113,7 @@ fun MainNavGraph(
             navController.navigate(Screen.AddJob) {
                 launchSingleTop = true
             }
+            jobViewModel.consumeSharedText()
         }
     }
 

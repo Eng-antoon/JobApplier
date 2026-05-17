@@ -11,6 +11,7 @@ import android.content.Intent
 import android.graphics.PixelFormat
 import android.os.IBinder
 import android.view.Gravity
+import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.VelocityTracker
 import android.view.View
@@ -24,14 +25,22 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -59,13 +68,16 @@ import com.aplicator.jobapplier.data.repository.JobRepository
 import com.aplicator.jobapplier.data.repository.ProfileRepository
 import com.aplicator.jobapplier.domain.model.GeneratedContent
 import com.aplicator.jobapplier.domain.model.UserProfileSnapshot
+import com.aplicator.jobapplier.ui.snippets.buildSnippets
 import com.aplicator.jobapplier.ui.theme.JobApplierTheme
 import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 import kotlin.math.abs
 
 class BubbleOverlayService : LifecycleService(), SavedStateRegistryOwner {
@@ -128,6 +140,40 @@ class BubbleOverlayService : LifecycleService(), SavedStateRegistryOwner {
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, createNotification())
         showBubble()
+        loadBubbleData()
+    }
+
+    private fun loadBubbleData() {
+        lifecycleScope.launch {
+            val uid = authRepository.getCurrentUserId() ?: return@launch
+            profileRepository.getProfile(uid).getOrNull()?.let { profile ->
+                bubbleDataProvider.updateUserInfo(profile.fullName, null)
+                val skills = profileRepository.getSkills(uid).getOrDefault(emptyList())
+                val experiences = profileRepository.getWorkExperiences(uid).getOrDefault(emptyList())
+                val education = profileRepository.getEducation(uid).getOrDefault(emptyList())
+                val certifications = profileRepository.getCertifications(uid).getOrDefault(emptyList())
+                val languages = profileRepository.getLanguages(uid).getOrDefault(emptyList())
+                val snippets = buildSnippets(profile, skills, experiences, education, certifications, languages)
+                bubbleDataProvider.updateSnippets(snippets)
+            }
+            jobRepository.getJobs(uid).getOrNull()?.let { jobs ->
+                bubbleDataProvider.updateRecentJobs(jobs.take(5).map { it.toBubbleJobItem() })
+                jobs.take(5).forEach { job ->
+                    val content = jobRepository.getGeneratedContent(job.id).getOrDefault(emptyList())
+                    bubbleDataProvider.updateGeneratedContent(
+                        job.id,
+                        content.map { item ->
+                            BubbleContentItem(
+                                contentType = item.contentType,
+                                content = item.content,
+                                tone = item.tone,
+                                createdAt = null,
+                            )
+                        },
+                    )
+                }
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -360,13 +406,11 @@ class BubbleOverlayService : LifecycleService(), SavedStateRegistryOwner {
     private fun showExpanded() {
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
-            (resources.displayMetrics.heightPixels * 0.8).toInt(),
+            WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT,
-        ).apply {
-            gravity = Gravity.BOTTOM
-        }
+        )
 
         // Hide bubble while panel open
         bubbleView?.let {
@@ -374,6 +418,16 @@ class BubbleOverlayService : LifecycleService(), SavedStateRegistryOwner {
                 windowManager.removeView(it)
             } catch (_: Exception) {}
         }
+
+        val density = resources.displayMetrics.density
+        val statusBarDp = resources.getDimensionPixelSize(
+            resources.getIdentifier("status_bar_height", "dimen", "android"),
+        ) / density
+        val panelLayout = expandedBubbleLayout(
+            screenWidthDp = (resources.displayMetrics.widthPixels / density).toInt(),
+            screenHeightDp = (resources.displayMetrics.heightPixels / density).toInt(),
+            statusBarDp = statusBarDp.toInt(),
+        )
 
         val view = ComposeView(this).apply {
             setViewTreeLifecycleOwner(this@BubbleOverlayService)
@@ -386,26 +440,56 @@ class BubbleOverlayService : LifecycleService(), SavedStateRegistryOwner {
                     val generatedContent by bubbleDataProvider.generatedContent.collectAsState()
                     val activeGeneration by generatingActionKey.collectAsState()
 
-                    BubbleExpandedPanel(
-                        userName = userName,
-                        snippets = snippets,
-                        recentJobs = recentJobs,
-                        generatedContent = generatedContent,
-                        generatingActionKey = activeGeneration,
-                        onClose = { hideExpanded() },
-                        onCopy = { label, value -> copyToClipboard(label, value) },
-                        onOpenApp = { startMainActivity() },
-                        onAddJob = { startMainActivityForAddJob() },
-                        onDismissBubble = {
-                            hideExpanded()
-                            removeBubble()
-                            stopSelf()
-                        },
-                        onRefresh = { hideExpanded() },
-                        onGenerate = { job, action, question ->
-                            generateBubbleContent(job, action, question)
-                        },
-                    )
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        // Scrim — tap anywhere outside panel to close
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color.Black.copy(alpha = 0.5f))
+                                .clickable(
+                                    indication = null,
+                                    interactionSource = remember { MutableInteractionSource() },
+                                ) { hideExpanded() },
+                        )
+
+                        Box(
+                            modifier = Modifier
+                                .width(panelLayout.widthDp.dp)
+                                .height(panelLayout.heightDp.dp)
+                                .padding(top = (statusBarDp + 8).dp)
+                                .align(Alignment.TopCenter)
+                                .clickable(
+                                    indication = null,
+                                    interactionSource = remember { MutableInteractionSource() },
+                                ) { /* consume touch — prevent leaking to scrim */ },
+                        ) {
+                            BubbleExpandedPanel(
+                                userName = userName,
+                                snippets = snippets,
+                                recentJobs = recentJobs,
+                                generatedContent = generatedContent,
+                                generatingActionKey = activeGeneration,
+                                onClose = { hideExpanded() },
+                                onCopy = { label, value ->
+                                    copyToClipboard(label, value)
+                                    if (BubbleCopyBehavior.dismissPanelAfterCopy) {
+                                        hideExpanded()
+                                    }
+                                },
+                                onOpenApp = { startMainActivity() },
+                                onAddJob = { startMainActivityForAddJob() },
+                                onDismissBubble = {
+                                    hideExpanded()
+                                    removeBubble()
+                                    stopSelf()
+                                },
+                                onRefresh = { hideExpanded() },
+                                onGenerate = { job, action, question, tone ->
+                                    generateBubbleContent(job, action, question, tone)
+                                },
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -465,6 +549,7 @@ class BubbleOverlayService : LifecycleService(), SavedStateRegistryOwner {
         bubbleJob: BubbleJobItem,
         action: BubbleAiAction,
         question: String?,
+        tone: String = "professional",
     ) {
         if (generatingActionKey.value != null) {
             Toast.makeText(this, "Generation already in progress", Toast.LENGTH_SHORT).show()
@@ -475,68 +560,72 @@ class BubbleOverlayService : LifecycleService(), SavedStateRegistryOwner {
         lifecycleScope.launch {
             generatingActionKey.value = actionKey
             try {
-                val uid = authRepository.getCurrentUserId()
-                if (uid == null) {
-                    Toast.makeText(this@BubbleOverlayService, "Sign in to generate content", Toast.LENGTH_SHORT).show()
-                    return@launch
-                }
+                withTimeout(120_000L) {
+                    val uid = authRepository.getCurrentUserId()
+                    if (uid == null) {
+                        Toast.makeText(this@BubbleOverlayService, "Sign in to generate content", Toast.LENGTH_SHORT).show()
+                        return@withTimeout
+                    }
 
-                val job = jobRepository.getJob(bubbleJob.jobId).getOrNull()
-                val jobDescription = job?.rawText?.takeIf { it.isNotBlank() }
-                    ?: bubbleJob.rawText?.takeIf { it.isNotBlank() }
+                    val job = jobRepository.getJob(bubbleJob.jobId).getOrNull()
+                    val jobDescription = job?.rawText?.takeIf { it.isNotBlank() }
+                        ?: bubbleJob.rawText?.takeIf { it.isNotBlank() }
 
-                if (jobDescription == null) {
-                    Toast.makeText(this@BubbleOverlayService, "Job description is missing", Toast.LENGTH_SHORT).show()
-                    return@launch
-                }
+                    if (jobDescription == null) {
+                        Toast.makeText(this@BubbleOverlayService, "Job description is missing", Toast.LENGTH_SHORT).show()
+                        return@withTimeout
+                    }
 
-                val profile = getProfileSnapshot(uid)
-                if (profile == null) {
-                    Toast.makeText(this@BubbleOverlayService, "Profile data is missing", Toast.LENGTH_SHORT).show()
-                    return@launch
-                }
+                    val profile = getProfileSnapshot(uid)
+                    if (profile == null) {
+                        Toast.makeText(this@BubbleOverlayService, "Profile data is missing", Toast.LENGTH_SHORT).show()
+                        return@withTimeout
+                    }
 
-                val result = when (action.contentType) {
-                    "cover_letter" -> aiRepository.generateCoverLetter(
-                        jobDescription = jobDescription,
-                        userProfile = profile.toPromptText(),
-                        tone = "professional",
-                        additionalInstructions = null,
-                    )
-                    "cover_email" -> aiRepository.generateCoverEmail(
-                        jobDescription = jobDescription,
-                        userProfile = profile.toPromptText(),
-                        tone = "professional",
-                    )
-                    else -> aiRepository.answerQuestion(
-                        question = question?.takeIf { it.isNotBlank() } ?: action.label,
-                        questionType = action.contentType,
-                        jobDescription = jobDescription,
-                        userProfile = profile.toPromptText(),
-                    )
-                }
-
-                result
-                    .onSuccess { response ->
-                        jobRepository.insertGeneratedContent(
-                            uid,
-                            GeneratedContent(
-                                jobId = bubbleJob.jobId,
-                                contentType = action.contentType,
-                                content = response.content,
-                                tone = "professional",
-                            ),
+                    val result = when (action.contentType) {
+                        "cover_letter" -> aiRepository.generateCoverLetter(
+                            jobDescription = jobDescription,
+                            userProfile = profile.toPromptText(),
+                            tone = tone,
+                            additionalInstructions = null,
                         )
-                        refreshBubbleContent(bubbleJob.jobId)
-                        Toast.makeText(this@BubbleOverlayService, "Generated: ${action.label}", Toast.LENGTH_SHORT).show()
+                        "cover_email" -> aiRepository.generateCoverEmail(
+                            jobDescription = jobDescription,
+                            userProfile = profile.toPromptText(),
+                            tone = tone,
+                        )
+                        else -> aiRepository.answerQuestion(
+                            question = question?.takeIf { it.isNotBlank() } ?: action.label,
+                            questionType = action.contentType,
+                            jobDescription = jobDescription,
+                            userProfile = profile.toPromptText(),
+                        )
                     }
-                    .onFailure {
-                        Toast.makeText(
-                            this@BubbleOverlayService,
-                            it.message ?: "Could not generate content",
-                            Toast.LENGTH_SHORT,
-                        ).show()
-                    }
+
+                    result
+                        .onSuccess { response ->
+                            jobRepository.insertGeneratedContent(
+                                uid,
+                                GeneratedContent(
+                                    jobId = bubbleJob.jobId,
+                                    contentType = action.contentType,
+                                    content = response.content,
+                                    tone = tone,
+                                ),
+                            )
+                            refreshBubbleContent(bubbleJob.jobId)
+                            Toast.makeText(this@BubbleOverlayService, "Generated: ${action.label}", Toast.LENGTH_SHORT).show()
+                        }
+                        .onFailure {
+                            Toast.makeText(
+                                this@BubbleOverlayService,
+                                it.message ?: "Could not generate content",
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        }
+                }
+            } catch (e: CancellationException) {
+                throw e
             } catch (exception: Exception) {
                 Toast.makeText(
                     this@BubbleOverlayService,
@@ -582,6 +671,7 @@ class BubbleOverlayService : LifecycleService(), SavedStateRegistryOwner {
     private fun copyToClipboard(label: String, value: String) {
         val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         clipboard.setPrimaryClip(ClipData.newPlainText(label, value))
+        expandedView?.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
         Toast.makeText(this, "Copied: $label", Toast.LENGTH_SHORT).show()
     }
 

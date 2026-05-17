@@ -24,15 +24,24 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Launch
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.QuestionAnswer
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Title
 import androidx.compose.material.icons.filled.WorkOutline
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilledTonalButton
@@ -60,8 +69,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.aplicator.jobapplier.ui.components.CompanyAvatar
+import com.aplicator.jobapplier.ui.components.MatchScoreRing
+import com.aplicator.jobapplier.ui.components.SelectableSaasChip
+import com.aplicator.jobapplier.ui.components.StatusPill
 import com.aplicator.jobapplier.ui.components.generatedContentLabel
 import com.aplicator.jobapplier.ui.snippets.SnippetItem
+import com.aplicator.jobapplier.ui.theme.MatchHigh
+import com.aplicator.jobapplier.ui.theme.MatchLow
 
 private sealed interface BubblePage {
     data class TopLevel(val page: BubblePanelPage) : BubblePage
@@ -81,9 +96,10 @@ fun BubbleExpandedPanel(
     onDismissBubble: () -> Unit,
     onRefresh: () -> Unit,
     generatingActionKey: String?,
-    onGenerate: (BubbleJobItem, BubbleAiAction, String?) -> Unit,
+    onGenerate: (BubbleJobItem, BubbleAiAction, String?, String) -> Unit,
 ) {
     var page by remember { mutableStateOf<BubblePage>(BubblePage.TopLevel(DefaultBubblePanelPage)) }
+
     val tabs = listOf(
         BubblePanelPage.SmartFill to "Smart Fill",
         BubblePanelPage.QuickCopy to "Quick Copy",
@@ -95,15 +111,33 @@ fun BubbleExpandedPanel(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .shadow(18.dp, RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp))
-            .clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp))
+            .padding(start = 8.dp, end = 8.dp, bottom = 8.dp)
+            .shadow(
+                elevation = 14.dp,
+                shape = RoundedCornerShape(22.dp),
+                ambientColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f),
+            )
+            .clip(RoundedCornerShape(22.dp))
             .background(MaterialTheme.colorScheme.surface),
     ) {
+        // Drag handle
+        Box(
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(width = 40.dp, height = 4.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(MaterialTheme.colorScheme.outlineVariant),
+            )
+        }
+
         // Header
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                .padding(horizontal = 14.dp, vertical = 10.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -120,7 +154,7 @@ fun BubbleExpandedPanel(
                 } else {
                     Box(
                         modifier = Modifier
-                            .size(36.dp)
+                            .size(34.dp)
                             .clip(CircleShape)
                             .background(
                                 Brush.linearGradient(
@@ -170,6 +204,7 @@ fun BubbleExpandedPanel(
             TabRow(
                 selectedTabIndex = tabs.indexOfFirst { it.first == topLevelPage }.coerceAtLeast(0),
                 containerColor = MaterialTheme.colorScheme.surface,
+                contentColor = MaterialTheme.colorScheme.primary,
             ) {
                 tabs.forEach { (tabPage, title) ->
                     Tab(
@@ -178,7 +213,7 @@ fun BubbleExpandedPanel(
                         text = {
                             Text(
                                 title,
-                                fontSize = 13.sp,
+                                fontSize = 12.sp,
                                 fontWeight = if (topLevelPage == tabPage) FontWeight.SemiBold else FontWeight.Normal,
                             )
                         },
@@ -195,7 +230,10 @@ fun BubbleExpandedPanel(
                     onCopy = onCopy,
                     onJobClick = { page = BubblePage.JobDetail(it) },
                 )
-                BubblePanelPage.QuickCopy -> QuickCopyTab(snippets = snippets, onCopy = onCopy)
+                BubblePanelPage.QuickCopy -> QuickCopyTab(
+                    snippets = snippets,
+                    onCopy = onCopy,
+                )
                 BubblePanelPage.Actions -> ActionsTab(
                     onOpenApp = onOpenApp,
                     onAddJob = onAddJob,
@@ -334,15 +372,16 @@ private fun SnippetCardRow(
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+            containerColor = MaterialTheme.colorScheme.surface,
         ),
-        shape = RoundedCornerShape(10.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        shape = RoundedCornerShape(12.dp),
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable { onCopy(snippet.label, snippet.value) }
-                .padding(horizontal = 12.dp, vertical = 10.dp),
+                .padding(horizontal = 12.dp, vertical = 9.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -404,12 +443,12 @@ private fun SmartFillTab(
                     modifier = Modifier
                         .fillMaxWidth()
                         .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     quickFields.forEach { field ->
                         FilledTonalButton(
                             onClick = { onCopy(field.label, field.value) },
-                            shape = RoundedCornerShape(10.dp),
+                            shape = RoundedCornerShape(12.dp),
                         ) {
                             Icon(
                                 Icons.Default.ContentCopy,
@@ -492,9 +531,10 @@ private fun JobCard(
             .fillMaxWidth()
             .padding(vertical = 4.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+            containerColor = MaterialTheme.colorScheme.surface,
         ),
-        shape = RoundedCornerShape(10.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        shape = RoundedCornerShape(12.dp),
         onClick = onClick,
     ) {
         Row(
@@ -544,15 +584,17 @@ private fun JobCard(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun BubbleJobDetailPage(
     job: BubbleJobItem,
     content: List<BubbleContentItem>,
     generatingActionKey: String?,
     onCopy: (String, String) -> Unit,
-    onGenerate: (BubbleJobItem, BubbleAiAction, String?) -> Unit,
+    onGenerate: (BubbleJobItem, BubbleAiAction, String?, String) -> Unit,
 ) {
     var customQuestion by remember(job.jobId) { mutableStateOf("") }
+    var selectedTone by remember { mutableStateOf("professional") }
     val actions = defaultBubbleAiActions()
     val standardActions = actions.filterNot { it.contentType == "custom_question" }
     val customAction = actions.first { it.contentType == "custom_question" }
@@ -563,6 +605,104 @@ private fun BubbleJobDetailPage(
             .padding(horizontal = 12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        // Company header card
+        item(key = "company_header") {
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                ),
+                shape = RoundedCornerShape(14.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    CompanyAvatar(job.companyName)
+                    Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                        Text(
+                            job.companyName,
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
+                        Text(
+                            job.roleTitle,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        StatusPill(job.status)
+                    }
+                    job.matchScore?.let { MatchScoreRing(it) }
+                }
+            }
+        }
+
+        // Fit breakdown
+        if (job.matched.isNotEmpty() || job.gaps.isNotEmpty()) {
+            item(key = "fit_breakdown") {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    ),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+                ) {
+                    Column(Modifier.padding(12.dp)) {
+                        Text("Fit breakdown", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                        Spacer(Modifier.height(8.dp))
+                        if (job.matched.isNotEmpty()) {
+                            Text("Matched", style = MaterialTheme.typography.labelMedium, color = MatchHigh, fontWeight = FontWeight.SemiBold)
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),
+                            ) {
+                                job.matched.forEach { item ->
+                                    Surface(
+                                        shape = RoundedCornerShape(999.dp),
+                                        color = MatchHigh.copy(alpha = 0.10f),
+                                        contentColor = MatchHigh,
+                                    ) {
+                                        Row(Modifier.padding(horizontal = 8.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(12.dp))
+                                            Text(item, modifier = Modifier.padding(start = 4.dp), style = MaterialTheme.typography.labelSmall)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if (job.gaps.isNotEmpty()) {
+                            Text("Gaps", style = MaterialTheme.typography.labelMedium, color = MatchLow, fontWeight = FontWeight.SemiBold)
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.padding(top = 4.dp),
+                            ) {
+                                job.gaps.forEach { item ->
+                                    Surface(
+                                        shape = RoundedCornerShape(999.dp),
+                                        color = MatchLow.copy(alpha = 0.10f),
+                                        contentColor = MatchLow,
+                                    ) {
+                                        Row(Modifier.padding(horizontal = 8.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(12.dp))
+                                            Text(item, modifier = Modifier.padding(start = 4.dp), style = MaterialTheme.typography.labelSmall)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Tone selector
         item(key = "application_data_header") {
             SectionLabel("Application Data")
         }
@@ -574,10 +714,96 @@ private fun BubbleJobDetailPage(
             )
         }
 
+        item(key = "tone_selector") {
+            Column {
+                SectionLabel("Tone")
+                Spacer(Modifier.height(6.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    listOf("professional", "casual", "enthusiastic").forEach { tone ->
+                        SelectableSaasChip(
+                            label = tone.replaceFirstChar { it.uppercase() },
+                            selected = selectedTone == tone,
+                            onClick = { selectedTone = tone },
+                        )
+                    }
+                }
+            }
+        }
+
+        // Generate actions
+        item(key = "actions_header") {
+            SectionLabel("Generate")
+        }
+        items(standardActions, key = { it.contentType }) { action ->
+            val isPrimary = action.contentType == "cover_email" || action.contentType == "cover_letter"
+            val icon = when (action.contentType) {
+                "cover_email" -> Icons.Default.Email
+                "cover_letter" -> Icons.Default.Description
+                "headline" -> Icons.Default.Title
+                else -> Icons.Default.QuestionAnswer
+            }
+            val isLoading = generatingActionKey == bubbleActionKey(job.jobId, action.contentType)
+            if (isPrimary) {
+                FilledTonalButton(
+                    onClick = { onGenerate(job, action, action.question, selectedTone) },
+                    enabled = !isLoading,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp),
+                ) {
+                    Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(if (isLoading) "Generating..." else action.label, fontSize = 13.sp)
+                }
+            } else {
+                OutlinedButton(
+                    onClick = { onGenerate(job, action, action.question, selectedTone) },
+                    enabled = !isLoading,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp),
+                ) {
+                    Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(if (isLoading) "Generating..." else action.label, fontSize = 13.sp)
+                }
+            }
+        }
+
+        item(key = "custom_question") {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = customQuestion,
+                    onValueChange = { customQuestion = it },
+                    placeholder = { Text("Type a custom question...", fontSize = 13.sp) },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 2,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                    ),
+                )
+                OutlinedButton(
+                    onClick = { onGenerate(job, customAction, customQuestion.trim(), selectedTone) },
+                    enabled = customQuestion.isNotBlank() && generatingActionKey != bubbleActionKey(job.jobId, customAction.contentType),
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp),
+                ) {
+                    Icon(Icons.Default.QuestionAnswer, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        if (generatingActionKey == bubbleActionKey(job.jobId, customAction.contentType)) "Generating..." else "Custom Question",
+                        fontSize = 13.sp,
+                    )
+                }
+            }
+        }
+
+        // Crafted content
         item(key = "generated_header") {
             SectionLabel("Crafted Content")
         }
-
         if (content.isEmpty()) {
             item(key = "generated_empty") {
                 Card(
@@ -599,7 +825,7 @@ private fun BubbleJobDetailPage(
                             tint = MaterialTheme.colorScheme.primary,
                         )
                         Text(
-                            "Generate content for this job, then tap any row to copy it.",
+                            "Tap Generate above, then tap any row to copy.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -613,39 +839,6 @@ private fun BubbleJobDetailPage(
                     label = label,
                     preview = item.content,
                     onClick = { onCopy(label, item.content) },
-                )
-            }
-        }
-
-        item(key = "actions_header") {
-            SectionLabel("Generate")
-        }
-        items(standardActions, key = { it.contentType }) { action ->
-            GenerateActionButton(
-                action = action,
-                isLoading = generatingActionKey == bubbleActionKey(job.jobId, action.contentType),
-                onClick = { onGenerate(job, action, action.question) },
-            )
-        }
-
-        item(key = "custom_question") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = customQuestion,
-                    onValueChange = { customQuestion = it },
-                    placeholder = { Text("Type a custom question...", fontSize = 13.sp) },
-                    modifier = Modifier.fillMaxWidth(),
-                    minLines = 2,
-                    shape = RoundedCornerShape(12.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
-                    ),
-                )
-                GenerateActionButton(
-                    action = customAction,
-                    isLoading = generatingActionKey == bubbleActionKey(job.jobId, customAction.contentType),
-                    enabled = customQuestion.isNotBlank(),
-                    onClick = { onGenerate(job, customAction, customQuestion.trim()) },
                 )
             }
         }
@@ -697,6 +890,7 @@ private fun BubbleCopyRow(
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         shape = RoundedCornerShape(8.dp),
     ) {
         Row(

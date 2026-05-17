@@ -11,6 +11,9 @@ data class BubbleJobItem(
     val status: String,
     val sourceUrl: String? = null,
     val rawText: String? = null,
+    val matched: List<String> = emptyList(),
+    val gaps: List<String> = emptyList(),
+    val suggestions: List<String> = emptyList(),
 )
 
 data class BubbleContentItem(
@@ -24,6 +27,15 @@ data class BubbleCopyItem(
     val label: String,
     val value: String,
 )
+
+data class ExpandedBubbleLayout(
+    val widthDp: Int,
+    val heightDp: Int,
+)
+
+object BubbleCopyBehavior {
+    const val dismissPanelAfterCopy = false
+}
 
 enum class BubblePanelPage {
     SmartFill,
@@ -84,6 +96,28 @@ fun defaultBubbleAiActions(): List<BubbleAiAction> = listOf(
 
 fun bubbleActionKey(jobId: String, contentType: String): String = "$jobId:$contentType"
 
+fun expandedBubbleLayout(
+    screenWidthDp: Int,
+    screenHeightDp: Int,
+    statusBarDp: Int,
+): ExpandedBubbleLayout {
+    val horizontalMarginDp = 32
+    val maxWidthDp = 456
+    val maxHeightDp = 880
+    val minHeightDp = 520
+    val availableWidth = (screenWidthDp - horizontalMarginDp).coerceAtLeast(320)
+    val availableHeight = (screenHeightDp - statusBarDp - 24).coerceAtLeast(minHeightDp)
+    val preferredHeight = (screenHeightDp * 0.78f).toInt()
+
+    return ExpandedBubbleLayout(
+        widthDp = availableWidth.coerceAtMost(maxWidthDp),
+        heightDp = preferredHeight
+            .coerceAtMost(availableHeight)
+            .coerceAtMost(maxHeightDp)
+            .coerceAtLeast(minHeightDp),
+    )
+}
+
 fun JobDescription.toBubbleJobItem(): BubbleJobItem = BubbleJobItem(
     jobId = id,
     companyName = companyName,
@@ -92,6 +126,9 @@ fun JobDescription.toBubbleJobItem(): BubbleJobItem = BubbleJobItem(
     status = status,
     sourceUrl = sourceUrl,
     rawText = rawText,
+    matched = matchResult?.matched ?: emptyList(),
+    gaps = matchResult?.gaps ?: emptyList(),
+    suggestions = matchResult?.suggestions ?: emptyList(),
 )
 
 fun BubbleJobItem.applicationCopyItems(): List<BubbleCopyItem> = buildList {

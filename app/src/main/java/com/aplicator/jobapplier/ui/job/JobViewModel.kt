@@ -3,6 +3,7 @@ package com.aplicator.jobapplier.ui.job
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.aplicator.jobapplier.data.event.SharedJobTextHolder
+import com.aplicator.jobapplier.ui.webextract.WebExtractResult
 import com.aplicator.jobapplier.data.remote.ai.AnalyzeJdResponse
 import com.aplicator.jobapplier.data.repository.AiRepository
 import com.aplicator.jobapplier.data.repository.AuthRepository
@@ -53,7 +54,7 @@ sealed interface FetchUrlState {
     data object Idle : FetchUrlState
     data object Loading : FetchUrlState
     data class Success(val title: String?, val company: String?, val description: String?) : FetchUrlState
-    data object Failed : FetchUrlState
+    data class Failed(val reason: String? = null) : FetchUrlState
 }
 
 @HiltViewModel
@@ -80,6 +81,9 @@ class JobViewModel @Inject constructor(
 
     private val _fetchUrlState = MutableStateFlow<FetchUrlState>(FetchUrlState.Idle)
     val fetchUrlState: StateFlow<FetchUrlState> = _fetchUrlState.asStateFlow()
+
+    private val _linkedInUrlToExtract = MutableStateFlow<String?>(null)
+    val linkedInUrlToExtract: StateFlow<String?> = _linkedInUrlToExtract.asStateFlow()
 
     private val userId: String?
         get() = authRepository.getCurrentUserId()
@@ -241,6 +245,10 @@ class JobViewModel @Inject constructor(
     }
 
     fun fetchJobFromUrl(url: String) {
+        if (url.lowercase().contains("linkedin.com/job")) {
+            _linkedInUrlToExtract.value = url
+            return
+        }
         viewModelScope.launch {
             _fetchUrlState.value = FetchUrlState.Loading
             val result = aiRepository.fetchJobFromUrl(url)
@@ -253,13 +261,30 @@ class JobViewModel @Inject constructor(
                             description = response.description,
                         )
                     } else {
-                        _fetchUrlState.value = FetchUrlState.Failed
+                        _fetchUrlState.value = FetchUrlState.Failed(reason = response.reason)
                     }
                 }
                 .onFailure {
-                    _fetchUrlState.value = FetchUrlState.Failed
+                    _fetchUrlState.value = FetchUrlState.Failed(reason = it.message)
                 }
         }
+    }
+
+    fun onWebExtractResult(result: WebExtractResult?) {
+        _linkedInUrlToExtract.value = null
+        if (result != null && (result.title != null || result.description != null)) {
+            _fetchUrlState.value = FetchUrlState.Success(
+                title = result.title,
+                company = result.company,
+                description = result.description,
+            )
+        } else {
+            _fetchUrlState.value = FetchUrlState.Failed(reason = "extraction_failed")
+        }
+    }
+
+    fun clearLinkedInExtractRequest() {
+        _linkedInUrlToExtract.value = null
     }
 
     fun clearFetchState() {

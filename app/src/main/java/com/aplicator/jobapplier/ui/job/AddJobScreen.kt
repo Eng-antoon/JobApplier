@@ -29,6 +29,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -37,6 +38,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import com.aplicator.jobapplier.ui.webextract.WebJobExtractorContract
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -57,12 +59,24 @@ fun AddJobScreen(
 ) {
     val addJobState by viewModel.addJobState.collectAsState()
     val fetchState by viewModel.fetchUrlState.collectAsState()
+    val linkedInUrl by viewModel.linkedInUrlToExtract.collectAsState()
     var companyName by rememberSaveable { mutableStateOf("") }
     var roleTitle by rememberSaveable { mutableStateOf("") }
     var rawText by rememberSaveable { mutableStateOf("") }
     var sourceUrl by rememberSaveable { mutableStateOf("") }
     val snackbarHostState = remember { SnackbarHostState() }
     val clipboardManager = LocalClipboardManager.current
+
+    val webExtractLauncher = rememberLauncherForActivityResult(
+        contract = WebJobExtractorContract(),
+    ) { result -> viewModel.onWebExtractResult(result) }
+
+    LaunchedEffect(linkedInUrl) {
+        linkedInUrl?.let { url ->
+            webExtractLauncher.launch(url)
+            viewModel.clearLinkedInExtractRequest()
+        }
+    }
 
     LaunchedEffect(Unit) {
         viewModel.consumeSharedText()?.let { rawText = it }
@@ -87,7 +101,13 @@ fun AddJobScreen(
             state.description?.let { rawText = it }
             viewModel.clearFetchState()
         } else if (state is FetchUrlState.Failed) {
-            snackbarHostState.showSnackbar("Could not auto-fetch. Please paste the job description below.")
+            val message = when (state.reason) {
+                "blocked_by_auth" -> "This job post requires sign-in. Copy and paste the job description below."
+                "no_job_content" -> "No job posting found at this URL. Please paste the job description below."
+                "extraction_failed" -> "Could not extract from LinkedIn. Try copying and pasting the description."
+                else -> "Could not auto-fetch. Please paste the job description below."
+            }
+            snackbarHostState.showSnackbar(message)
             viewModel.clearFetchState()
         }
     }
@@ -120,12 +140,12 @@ fun AddJobScreen(
                     Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                     Spacer(Modifier.height(10.dp))
                     Text(
-                        "Paste a role. Get a match score and ready-to-send content.",
+                        "Add role details",
                         style = MaterialTheme.typography.titleLarge,
                         color = MaterialTheme.colorScheme.onPrimaryContainer,
                     )
                     Text(
-                        "JobApplier analyzes the description against your profile before saving it.",
+                        "Paste a job post or fetch from a URL to score it against your profile.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

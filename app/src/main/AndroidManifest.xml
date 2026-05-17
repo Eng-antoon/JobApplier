@@ -35,6 +35,10 @@
                 <data android:mimeType="text/plain" />
             </intent-filter>
         </activity>
+        <activity
+            android:name=".ui.webextract.WebJobExtractorActivity"
+            android:exported="false"
+            android:theme="@style/Theme.JobApplier" />
         <service
             android:name=".service.BubbleOverlayService"
             android:foregroundServiceType="specialUse"
