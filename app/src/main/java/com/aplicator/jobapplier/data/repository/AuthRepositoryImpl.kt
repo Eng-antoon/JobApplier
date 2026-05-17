@@ -46,4 +46,9 @@ class AuthRepositoryImpl @Inject constructor(
     override fun getCurrentUserId(): String? {
         return supabaseClient.auth.currentUserOrNull()?.id
     }
+
+    override suspend fun awaitCurrentUserId(): String? {
+        supabaseClient.auth.awaitInitialization()
+        return getCurrentUserId()
+    }
 }

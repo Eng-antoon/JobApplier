@@ -31,7 +31,9 @@ object AppModule {
             supabaseUrl = BuildConfig.SUPABASE_URL,
             supabaseKey = BuildConfig.SUPABASE_ANON_KEY
         ) {
-            install(Auth)
+            install(Auth) {
+                enableLifecycleCallbacks = false
+            }
             install(Postgrest)
             install(Functions)
             requestTimeout = 150.seconds

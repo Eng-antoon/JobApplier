@@ -145,7 +145,7 @@ class BubbleOverlayService : LifecycleService(), SavedStateRegistryOwner {
 
     private fun loadBubbleData() {
         lifecycleScope.launch {
-            val uid = authRepository.getCurrentUserId() ?: return@launch
+            val uid = authRepository.awaitCurrentUserId() ?: return@launch
             profileRepository.getProfile(uid).getOrNull()?.let { profile ->
                 bubbleDataProvider.updateUserInfo(profile.fullName, null)
                 val skills = profileRepository.getSkills(uid).getOrDefault(emptyList())
@@ -561,7 +561,7 @@ class BubbleOverlayService : LifecycleService(), SavedStateRegistryOwner {
             generatingActionKey.value = actionKey
             try {
                 withTimeout(120_000L) {
-                    val uid = authRepository.getCurrentUserId()
+                    val uid = authRepository.awaitCurrentUserId()
                     if (uid == null) {
                         Toast.makeText(this@BubbleOverlayService, "Sign in to generate content", Toast.LENGTH_SHORT).show()
                         return@withTimeout
