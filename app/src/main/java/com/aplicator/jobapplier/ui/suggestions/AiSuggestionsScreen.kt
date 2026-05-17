@@ -1,8 +1,13 @@
 package com.aplicator.jobapplier.ui.suggestions
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.view.HapticFeedbackConstants
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
@@ -12,17 +17,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.AssistChipDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -34,26 +33,30 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.aplicator.jobapplier.data.remote.ai.AiSuggestionsResponse
+import com.aplicator.jobapplier.ui.components.CopyCard
+import com.aplicator.jobapplier.ui.components.EmptyState
+import com.aplicator.jobapplier.ui.components.PremiumLoadingIndicator
+import com.aplicator.jobapplier.ui.components.SaasCard
+import com.aplicator.jobapplier.ui.components.SaasScreenBackground
+import com.aplicator.jobapplier.ui.theme.AccentAmber
+import com.aplicator.jobapplier.ui.theme.AccentCyan
+import com.aplicator.jobapplier.ui.theme.AccentTeal
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AiSuggestionsScreen(
-    viewModel: AiSuggestionsViewModel = hiltViewModel(),
-) {
+fun AiSuggestionsScreen(viewModel: AiSuggestionsViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsState()
 
     Column(modifier = Modifier.fillMaxSize()) {
         TopAppBar(
-            title = {
-                Text(
-                    "AI Suggestions",
-                    fontWeight = FontWeight.SemiBold,
-                )
-            },
+            title = { Text("AI coach", fontWeight = FontWeight.Bold) },
             actions = {
                 IconButton(onClick = { viewModel.refresh() }) {
                     Icon(Icons.Default.Refresh, contentDescription = "Refresh")
@@ -61,59 +64,24 @@ fun AiSuggestionsScreen(
             },
         )
 
-        when (val currentState = state) {
-            is SuggestionsState.Loading -> {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                        Spacer(Modifier.height(16.dp))
-                        Text(
-                            "Analyzing your profile...",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+        SaasScreenBackground(Modifier.fillMaxSize()) {
+            when (val currentState = state) {
+                is SuggestionsState.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    PremiumLoadingIndicator(message = "Analyzing your profile...")
                 }
-            }
-
-            is SuggestionsState.Error -> {
-                Box(
+                is SuggestionsState.Error -> EmptyState(
+                    title = "AI suggestions unavailable",
+                    message = currentState.message,
+                    icon = Icons.Default.AutoAwesome,
                     modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        currentState.message,
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                }
-            }
-
-            is SuggestionsState.Empty -> {
-                Box(
+                )
+                is SuggestionsState.Empty -> EmptyState(
+                    title = "Complete your profile",
+                    message = "Add profile details to unlock tailored headlines, summaries, gaps, and tips.",
+                    icon = Icons.Default.AutoAwesome,
                     modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(
-                            Icons.Default.AutoAwesome,
-                            contentDescription = null,
-                            modifier = Modifier.padding(bottom = 16.dp),
-                            tint = MaterialTheme.colorScheme.primary,
-                        )
-                        Text(
-                            "Complete your profile to get AI suggestions",
-                            style = MaterialTheme.typography.bodyLarge,
-                        )
-                    }
-                }
-            }
-
-            is SuggestionsState.Success -> {
-                SuggestionsContent(currentState.suggestions)
+                )
+                is SuggestionsState.Success -> SuggestionsContent(currentState.suggestions)
             }
         }
     }
@@ -122,119 +90,82 @@ fun AiSuggestionsScreen(
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun SuggestionsContent(suggestions: AiSuggestionsResponse) {
+    val context = LocalContext.current
+    val view = LocalView.current
+    fun copy(label: String, value: String) {
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        clipboard.setPrimaryClip(ClipData.newPlainText(label, value))
+        view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+    }
+
     LazyColumn(
         contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
+        item {
+            SaasCard(
+                modifier = Modifier.fillMaxWidth(),
+                containerColor = MaterialTheme.colorScheme.primary,
+            ) {
+                Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary)
+                Spacer(Modifier.height(10.dp))
+                Text("Profile intelligence", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onPrimary)
+                Text(
+                    "Use these suggestions to improve your profile and application copy.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.75f),
+                )
+            }
+        }
+
         if (suggestions.headlineSuggestions.isNotEmpty()) {
             item {
-                SuggestionSection(
-                    title = "Headline Ideas",
-                    icon = { Icon(Icons.AutoMirrored.Filled.TrendingUp, contentDescription = null) },
-                ) {
+                SuggestionSection("Headline ideas", AccentTeal, Icons.AutoMirrored.Filled.TrendingUp) {
                     suggestions.headlineSuggestions.forEach { headline ->
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp),
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.primaryContainer,
-                            ),
-                            shape = RoundedCornerShape(8.dp),
-                        ) {
-                            Text(
-                                text = headline,
-                                modifier = Modifier.padding(12.dp),
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Medium,
-                            )
-                        }
+                        CopyCard(label = "Headline", value = headline, accent = AccentTeal, onClick = { copy("Headline", headline) })
                     }
                 }
             }
         }
-
         if (suggestions.summaryRewrites.isNotEmpty()) {
             item {
-                SuggestionSection(
-                    title = "Summary Improvements",
-                    icon = { Icon(Icons.Default.AutoAwesome, contentDescription = null) },
-                ) {
+                SuggestionSection("Summary rewrites", AccentCyan, Icons.Default.AutoAwesome) {
                     suggestions.summaryRewrites.forEachIndexed { index, summary ->
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp),
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                            ),
-                            shape = RoundedCornerShape(8.dp),
-                        ) {
-                            Column(modifier = Modifier.padding(12.dp)) {
-                                Text(
-                                    "Option ${index + 1}",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.primary,
-                                )
-                                Spacer(Modifier.height(4.dp))
-                                Text(
-                                    text = summary,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                )
-                            }
-                        }
+                        CopyCard(label = "Option ${index + 1}", value = summary, accent = AccentCyan, onClick = { copy("Summary option ${index + 1}", summary) })
                     }
                 }
             }
         }
-
         if (suggestions.skillGaps.isNotEmpty()) {
             item {
-                SuggestionSection(
-                    title = "Skill Gaps",
-                    icon = { Icon(Icons.Default.Lightbulb, contentDescription = null) },
-                ) {
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
+                SuggestionSection("Skill gaps", AccentAmber, Icons.Default.Lightbulb) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         suggestions.skillGaps.forEach { gap ->
-                            val chipColor = when (gap.priority) {
+                            val color = when (gap.priority) {
                                 "high" -> MaterialTheme.colorScheme.error
-                                "medium" -> MaterialTheme.colorScheme.tertiary
+                                "medium" -> AccentAmber
                                 else -> MaterialTheme.colorScheme.onSurfaceVariant
                             }
-                            AssistChip(
-                                onClick = {},
-                                label = {
-                                    Column {
-                                        Text(gap.skill, fontWeight = FontWeight.Medium)
-                                        Text(
-                                            gap.reason,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            maxLines = 2,
-                                        )
-                                    }
-                                },
-                                colors = AssistChipDefaults.assistChipColors(
-                                    labelColor = chipColor,
-                                ),
-                            )
+                            androidx.compose.material3.Surface(
+                                shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                                color = color.copy(alpha = 0.10f),
+                                contentColor = color,
+                            ) {
+                                Column(Modifier.padding(12.dp)) {
+                                    Text(gap.skill, fontWeight = FontWeight.Bold)
+                                    Text(gap.reason, style = MaterialTheme.typography.bodySmall)
+                                }
+                            }
                         }
                     }
                 }
             }
         }
-
         if (suggestions.generalTips.isNotEmpty()) {
             item {
-                SuggestionSection(title = "Tips") {
+                SuggestionSection("Tips", MaterialTheme.colorScheme.primary, Icons.Default.Lightbulb) {
                     suggestions.generalTips.forEach { tip ->
-                        Text(
-                            text = "• $tip",
-                            modifier = Modifier.padding(vertical = 4.dp),
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
+                        Text("• $tip", modifier = Modifier.padding(vertical = 4.dp), style = MaterialTheme.typography.bodyMedium)
                     }
                 }
             }
@@ -245,25 +176,21 @@ private fun SuggestionsContent(suggestions: AiSuggestionsResponse) {
 @Composable
 private fun SuggestionSection(
     title: String,
-    icon: (@Composable () -> Unit)? = null,
-    content: @Composable () -> Unit,
+    accent: Color,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    content: @Composable ColumnScope.() -> Unit,
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface,
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+    SaasCard(Modifier.fillMaxWidth()) {
+        androidx.compose.foundation.layout.Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, contentDescription = null, tint = accent)
             Text(
-                text = title,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.primary,
+                title,
+                modifier = Modifier.padding(start = 8.dp),
+                style = MaterialTheme.typography.titleMedium,
+                color = accent,
             )
-            Spacer(Modifier.height(12.dp))
-            content()
         }
+        Spacer(Modifier.height(12.dp))
+        content()
     }
 }

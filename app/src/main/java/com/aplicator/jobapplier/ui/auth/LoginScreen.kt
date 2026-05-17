@@ -19,7 +19,6 @@ import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -51,6 +50,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.aplicator.jobapplier.R
+import com.aplicator.jobapplier.ui.components.SaasPrimaryButton
 
 @Composable
 fun LoginScreen(
@@ -203,7 +203,7 @@ fun LoginScreen(
                 )
                 Spacer(Modifier.height(24.dp))
 
-                Button(
+                SaasPrimaryButton(
                     onClick = { viewModel.signIn(email.trim(), password) },
                     enabled = !uiState.isLoading && email.isNotBlank() && password.isNotBlank(),
                     modifier = Modifier.fillMaxWidth().height(50.dp),

@@ -19,6 +19,7 @@ ksp = "2.1.21-2.0.1"
 lifecycleCompose = "2.8.7"
 materialIconsExtended = "1.7.8"
 splashscreen = "1.0.1"
+coil = "2.7.0"
 pdfboxAndroid = "2.0.27.0"
 poiOoxml = "5.2.5"
 
@@ -68,6 +69,9 @@ androidx-core-splashscreen = { group = "androidx.core", name = "core-splashscree
 
 # Lifecycle Service
 androidx-lifecycle-service = { group = "androidx.lifecycle", name = "lifecycle-service", version.ref = "lifecycleRuntimeKtx" }
+
+# Coil (image loading)
+coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }
 
 # PDF & DOCX
 pdfbox-android = { group = "com.tom-roush", name = "pdfbox-android", version.ref = "pdfboxAndroid" }

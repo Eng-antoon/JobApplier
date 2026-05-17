@@ -11,8 +11,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Edit
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -22,6 +20,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.aplicator.jobapplier.ui.components.SaasCard
+import com.aplicator.jobapplier.ui.components.SaasScreenBackground
 
 @Composable
 fun OnboardingChoiceScreen(
@@ -29,14 +29,14 @@ fun OnboardingChoiceScreen(
     onManualFill: () -> Unit,
 ) {
     Scaffold { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-        ) {
+        SaasScreenBackground(Modifier.fillMaxSize().padding(padding)) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
             Text(
                 text = "Set Up Your Profile",
                 style = MaterialTheme.typography.headlineMedium,
@@ -51,13 +51,12 @@ fun OnboardingChoiceScreen(
             )
             Spacer(modifier = Modifier.height(48.dp))
 
-            Card(
+            SaasCard(
                 onClick = onResumeImport,
                 modifier = Modifier.fillMaxWidth(),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
             ) {
                 Column(
-                    modifier = Modifier.padding(24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Icon(
@@ -82,13 +81,11 @@ fun OnboardingChoiceScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            Card(
+            SaasCard(
                 onClick = onManualFill,
                 modifier = Modifier.fillMaxWidth(),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
             ) {
                 Column(
-                    modifier = Modifier.padding(24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Icon(
@@ -110,6 +107,7 @@ fun OnboardingChoiceScreen(
                     )
                 }
             }
+        }
         }
     }
 }

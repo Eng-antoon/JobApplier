@@ -15,7 +15,6 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -43,6 +42,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import com.aplicator.jobapplier.ui.components.SaasCard
+import com.aplicator.jobapplier.ui.components.SaasPrimaryButton
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -87,6 +88,16 @@ fun SignUpScreen(
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            SaasCard(modifier = Modifier.fillMaxWidth()) {
+                Text("Build your application workspace", style = MaterialTheme.typography.headlineMedium)
+                Text(
+                    "Save your profile, snippets, and AI-generated application content.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Spacer(modifier = Modifier.height(24.dp))
+
             OutlinedTextField(
                 value = displayName,
                 onValueChange = { displayName = it },
@@ -156,7 +167,7 @@ fun SignUpScreen(
             )
             Spacer(modifier = Modifier.height(24.dp))
 
-            Button(
+            SaasPrimaryButton(
                 onClick = { viewModel.signUp(email.trim(), password, displayName.trim()) },
                 enabled = !uiState.isLoading
                     && displayName.isNotBlank()

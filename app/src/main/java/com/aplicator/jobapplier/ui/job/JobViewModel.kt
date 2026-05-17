@@ -12,6 +12,9 @@ import com.aplicator.jobapplier.domain.model.GeneratedContent
 import com.aplicator.jobapplier.domain.model.JobDescription
 import com.aplicator.jobapplier.domain.model.MatchResult
 import com.aplicator.jobapplier.domain.model.UserProfileSnapshot
+import com.aplicator.jobapplier.service.BubbleContentItem
+import com.aplicator.jobapplier.service.BubbleDataProvider
+import com.aplicator.jobapplier.service.BubbleJobItem
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -60,6 +63,7 @@ class JobViewModel @Inject constructor(
     private val jobRepository: JobRepository,
     private val aiRepository: AiRepository,
     private val sharedJobTextHolder: SharedJobTextHolder,
+    private val bubbleDataProvider: BubbleDataProvider,
 ) : ViewModel() {
 
     private val _jobListState = MutableStateFlow(JobListState())
@@ -95,7 +99,10 @@ class JobViewModel @Inject constructor(
         viewModelScope.launch {
             _jobListState.value = JobListState(isLoading = true)
             jobRepository.getJobs(uid)
-                .onSuccess { _jobListState.value = JobListState(isLoading = false, jobs = it) }
+                .onSuccess { jobs ->
+                    _jobListState.value = JobListState(isLoading = false, jobs = jobs)
+                    pushJobsToBubble(jobs)
+                }
                 .onFailure { _jobListState.value = JobListState(isLoading = false, error = it.message) }
         }
     }
@@ -108,12 +115,14 @@ class JobViewModel @Inject constructor(
 
             jobResult
                 .onSuccess { job ->
+                    val contentList = contentResult.getOrDefault(emptyList())
                     _jobDetailState.value = JobDetailState(
                         isLoading = false,
                         job = job,
                         matchResult = job.matchResult,
-                        generatedContent = contentResult.getOrDefault(emptyList()),
+                        generatedContent = contentList,
                     )
+                    pushContentToBubble(jobId, contentList)
                 }
                 .onFailure {
                     _jobDetailState.value = JobDetailState(isLoading = false, error = it.message)
@@ -277,5 +286,30 @@ class JobViewModel @Inject constructor(
             certifications = certs,
             languages = langs,
         ).also { cachedProfileSnapshot = it }
+    }
+
+    private fun pushJobsToBubble(jobs: List<JobDescription>) {
+        val bubbleJobs = jobs.take(5).map { job ->
+            BubbleJobItem(
+                jobId = job.id,
+                companyName = job.companyName,
+                roleTitle = job.roleTitle,
+                matchScore = job.matchScore,
+                status = job.status,
+            )
+        }
+        bubbleDataProvider.updateRecentJobs(bubbleJobs)
+    }
+
+    private fun pushContentToBubble(jobId: String, content: List<GeneratedContent>) {
+        val bubbleContent = content.map { item ->
+            BubbleContentItem(
+                contentType = item.contentType,
+                content = item.content,
+                tone = item.tone,
+                createdAt = null,
+            )
+        }
+        bubbleDataProvider.updateGeneratedContent(jobId, bubbleContent)
     }
 }

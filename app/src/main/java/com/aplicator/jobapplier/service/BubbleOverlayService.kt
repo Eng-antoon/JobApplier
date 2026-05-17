@@ -12,6 +12,7 @@ import android.graphics.PixelFormat
 import android.os.IBinder
 import android.view.Gravity
 import android.view.MotionEvent
+import android.view.VelocityTracker
 import android.view.View
 import android.view.WindowManager
 import android.widget.Toast
@@ -23,29 +24,10 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SuggestionChip
-import androidx.compose.material3.SuggestionChipDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -54,7 +36,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -64,12 +50,14 @@ import androidx.lifecycle.setViewTreeLifecycleOwner
 import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
+import coil.compose.AsyncImage
 import com.aplicator.jobapplier.MainActivity
 import com.aplicator.jobapplier.ui.theme.JobApplierTheme
 import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlin.math.abs
 
 class BubbleOverlayService : LifecycleService(), SavedStateRegistryOwner {
@@ -85,8 +73,12 @@ class BubbleOverlayService : LifecycleService(), SavedStateRegistryOwner {
     private lateinit var bubblePhysics: BubblePhysics
     private var bubbleView: ComposeView? = null
     private var expandedView: ComposeView? = null
+    private var dismissZoneView: ComposeView? = null
     private var isExpanded = false
     private var bubbleParams: WindowManager.LayoutParams? = null
+
+    private val dismissVisible = MutableStateFlow(false)
+    private val dismissHighlighted = MutableStateFlow(false)
 
     private val savedStateRegistryController = SavedStateRegistryController.create(this)
     override val savedStateRegistry get() = savedStateRegistryController.savedStateRegistry
@@ -95,15 +87,18 @@ class BubbleOverlayService : LifecycleService(), SavedStateRegistryOwner {
         private const val CHANNEL_ID = "bubble_overlay_channel"
         private const val NOTIFICATION_ID = 1001
         private const val STOP_ACTION = "com.aplicator.jobapplier.STOP_BUBBLE"
-        private const val BUBBLE_SIZE_DP = 58
+        private const val BUBBLE_SIZE_DP = 62
+        private const val NAVIGATE_EXTRA = "navigate_to"
     }
 
     override fun onCreate() {
         super.onCreate()
         savedStateRegistryController.performRestore(null)
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+        val density = resources.displayMetrics.density
         val screenWidth = resources.displayMetrics.widthPixels
-        bubblePhysics = BubblePhysics(windowManager, screenWidth)
+        val bubbleSizePx = (BUBBLE_SIZE_DP * density).toInt()
+        bubblePhysics = BubblePhysics(windowManager, screenWidth, bubbleSizePx)
         val entryPoint = EntryPointAccessors.fromApplication(
             applicationContext,
             BubbleServiceEntryPoint::class.java,
@@ -166,16 +161,19 @@ class BubbleOverlayService : LifecycleService(), SavedStateRegistryOwner {
     }
 
     private fun showBubble() {
+        val density = resources.displayMetrics.density
+        val bubbleSizePx = (BUBBLE_SIZE_DP * density).toInt()
+
         val params = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.WRAP_CONTENT,
+            bubbleSizePx,
+            bubbleSizePx,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = resources.displayMetrics.widthPixels - 80
+            x = resources.displayMetrics.widthPixels - bubbleSizePx - 8
             y = 300
         }
 
@@ -195,7 +193,6 @@ class BubbleOverlayService : LifecycleService(), SavedStateRegistryOwner {
         bubbleView = view
         windowManager.addView(view, params)
 
-        // Snap to right edge on start
         bubblePhysics.snapToEdge(view, params, params.x, params.y)
     }
 
@@ -205,8 +202,12 @@ class BubbleOverlayService : LifecycleService(), SavedStateRegistryOwner {
         var initialTouchX = 0f
         var initialTouchY = 0f
         var totalMovement = 0f
+        var velocityTracker: VelocityTracker? = null
+        var isDragging = false
 
         view.setOnTouchListener { v, event ->
+            if (event.pointerCount > 1) return@setOnTouchListener false
+
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
                     initialX = params.x
@@ -214,9 +215,13 @@ class BubbleOverlayService : LifecycleService(), SavedStateRegistryOwner {
                     initialTouchX = event.rawX
                     initialTouchY = event.rawY
                     totalMovement = 0f
+                    isDragging = false
+                    velocityTracker = VelocityTracker.obtain()
+                    velocityTracker?.addMovement(event)
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
+                    velocityTracker?.addMovement(event)
                     val dx = event.rawX - initialTouchX
                     val dy = event.rawY - initialTouchY
                     totalMovement = abs(dx) + abs(dy)
@@ -225,18 +230,101 @@ class BubbleOverlayService : LifecycleService(), SavedStateRegistryOwner {
                     try {
                         windowManager.updateViewLayout(v, params)
                     } catch (_: Exception) {}
+
+                    if (!isDragging && totalMovement > 10f) {
+                        isDragging = true
+                        showDismissZone()
+                    }
+
+                    if (isDragging) {
+                        val screenHeight = resources.displayMetrics.heightPixels
+                        val density = resources.displayMetrics.density
+                        val inZone = bubblePhysics.isInDismissZone(
+                            params.x, params.y, screenHeight, density,
+                        )
+                        dismissHighlighted.value = inZone
+                    }
                     true
                 }
                 MotionEvent.ACTION_UP -> {
+                    velocityTracker?.addMovement(event)
+                    velocityTracker?.computeCurrentVelocity(1000)
+                    val vx = velocityTracker?.xVelocity ?: 0f
+                    velocityTracker?.recycle()
+                    velocityTracker = null
+
                     if (totalMovement < 30f) {
+                        hideDismissZone()
                         toggleExpanded()
+                    } else if (dismissHighlighted.value) {
+                        val screenHeight = resources.displayMetrics.heightPixels
+                        val density = resources.displayMetrics.density
+                        bubblePhysics.animateToDismiss(v, params, screenHeight, density) {
+                            hideDismissZone()
+                            removeBubble()
+                            stopSelf()
+                        }
                     } else {
-                        bubblePhysics.snapToEdge(v, params, params.x, params.y)
+                        hideDismissZone()
+                        bubblePhysics.snapToEdge(v, params, params.x, params.y, vx)
                     }
+                    isDragging = false
+                    true
+                }
+                MotionEvent.ACTION_CANCEL -> {
+                    velocityTracker?.recycle()
+                    velocityTracker = null
+                    hideDismissZone()
+                    isDragging = false
+                    bubblePhysics.snapToEdge(v, params, params.x, params.y)
                     true
                 }
                 else -> false
             }
+        }
+    }
+
+    private fun showDismissZone() {
+        if (dismissZoneView != null) return
+
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            PixelFormat.TRANSLUCENT,
+        )
+
+        dismissVisible.value = true
+        dismissHighlighted.value = false
+
+        val view = ComposeView(this).apply {
+            setViewTreeLifecycleOwner(this@BubbleOverlayService)
+            setViewTreeSavedStateRegistryOwner(this@BubbleOverlayService)
+            setContent {
+                DismissZoneOverlay(
+                    isVisible = dismissVisible,
+                    isHighlighted = dismissHighlighted,
+                )
+            }
+        }
+
+        dismissZoneView = view
+        try {
+            windowManager.addView(view, params)
+        } catch (_: Exception) {}
+    }
+
+    private fun hideDismissZone() {
+        dismissVisible.value = false
+        dismissHighlighted.value = false
+        dismissZoneView?.let {
+            try {
+                windowManager.removeView(it)
+            } catch (_: Exception) {}
+            dismissZoneView = null
         }
     }
 
@@ -251,14 +339,19 @@ class BubbleOverlayService : LifecycleService(), SavedStateRegistryOwner {
     private fun showExpanded() {
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.WRAP_CONTENT,
+            (resources.displayMetrics.heightPixels * 0.8).toInt(),
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT,
         ).apply {
-            gravity = Gravity.CENTER
-            height = (resources.displayMetrics.heightPixels * 0.7).toInt()
-            width = (resources.displayMetrics.widthPixels * 0.92).toInt()
+            gravity = Gravity.BOTTOM
+        }
+
+        // Hide bubble while panel open
+        bubbleView?.let {
+            try {
+                windowManager.removeView(it)
+            } catch (_: Exception) {}
         }
 
         val view = ComposeView(this).apply {
@@ -266,9 +359,26 @@ class BubbleOverlayService : LifecycleService(), SavedStateRegistryOwner {
             setViewTreeSavedStateRegistryOwner(this@BubbleOverlayService)
             setContent {
                 JobApplierTheme {
-                    ExpandedPanelContent(
+                    val snippets by bubbleDataProvider.snippets.collectAsState()
+                    val userName by bubbleDataProvider.userName.collectAsState()
+                    val recentJobs by bubbleDataProvider.recentJobs.collectAsState()
+                    val generatedContent by bubbleDataProvider.generatedContent.collectAsState()
+
+                    BubbleExpandedPanel(
+                        userName = userName,
+                        snippets = snippets,
+                        recentJobs = recentJobs,
+                        generatedContent = generatedContent,
                         onClose = { hideExpanded() },
                         onCopy = { label, value -> copyToClipboard(label, value) },
+                        onOpenApp = { startMainActivity() },
+                        onAddJob = { startMainActivityForAddJob() },
+                        onDismissBubble = {
+                            hideExpanded()
+                            removeBubble()
+                            stopSelf()
+                        },
+                        onRefresh = { hideExpanded() },
                     )
                 }
             }
@@ -287,9 +397,20 @@ class BubbleOverlayService : LifecycleService(), SavedStateRegistryOwner {
             expandedView = null
         }
         isExpanded = false
+
+        // Re-show bubble
+        bubbleView?.let { view ->
+            bubbleParams?.let { params ->
+                try {
+                    windowManager.addView(view, params)
+                    bubblePhysics.snapToEdge(view, params, params.x, params.y)
+                } catch (_: Exception) {}
+            }
+        }
     }
 
     private fun removeBubble() {
+        hideDismissZone()
         hideExpanded()
         bubbleView?.let {
             try {
@@ -297,6 +418,21 @@ class BubbleOverlayService : LifecycleService(), SavedStateRegistryOwner {
             } catch (_: Exception) {}
             bubbleView = null
         }
+    }
+
+    private fun startMainActivity() {
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
+        startActivity(intent)
+    }
+
+    private fun startMainActivityForAddJob() {
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            putExtra(NAVIGATE_EXTRA, "add_job")
+        }
+        startActivity(intent)
     }
 
     private fun copyToClipboard(label: String, value: String) {
@@ -308,121 +444,89 @@ class BubbleOverlayService : LifecycleService(), SavedStateRegistryOwner {
     @Composable
     private fun BubbleContent() {
         val userName by bubbleDataProvider.userName.collectAsState()
+        val avatarUrl by bubbleDataProvider.avatarUrl.collectAsState()
         val initial = userName.firstOrNull()?.uppercase() ?: "J"
 
         val infiniteTransition = rememberInfiniteTransition(label = "bubblePulse")
         val pulseScale by infiniteTransition.animateFloat(
             initialValue = 1f,
-            targetValue = 1.08f,
+            targetValue = 1.15f,
             animationSpec = infiniteRepeatable(
-                animation = tween(1500, easing = LinearEasing),
+                animation = tween(2000, easing = LinearEasing),
                 repeatMode = RepeatMode.Reverse,
             ),
-            label = "scale",
+            label = "glowPulse",
         )
 
         Box(
-            modifier = Modifier
-                .size(BUBBLE_SIZE_DP.dp)
-                .shadow(12.dp, CircleShape)
-                .clip(CircleShape)
-                .background(Color(0xFF0A66C2))
-                .border(width = 2.5.dp, color = Color.White, shape = CircleShape),
+            modifier = Modifier.size(BUBBLE_SIZE_DP.dp),
             contentAlignment = Alignment.Center,
         ) {
-            Text(
-                text = initial,
-                color = Color.White,
-                fontSize = 22.sp,
-                fontWeight = FontWeight.Bold,
+            // Messenger-style glow ring
+            Box(
+                modifier = Modifier
+                    .size((BUBBLE_SIZE_DP + 10).dp)
+                    .graphicsLayer {
+                        scaleX = pulseScale
+                        scaleY = pulseScale
+                        alpha = 0.30f
+                    }
+                    .clip(CircleShape)
+                    .background(Color(0xFF0F766E).copy(alpha = 0.28f)),
             )
-        }
-    }
 
-    @OptIn(ExperimentalLayoutApi::class)
-    @Composable
-    private fun ExpandedPanelContent(
-        onClose: () -> Unit,
-        onCopy: (String, String) -> Unit,
-    ) {
-        val snippets by bubbleDataProvider.snippets.collectAsState()
-        val grouped = snippets.groupBy { it.category }
-
-        Box(
-            modifier = Modifier
-                .shadow(16.dp, RoundedCornerShape(16.dp))
-                .clip(RoundedCornerShape(16.dp))
-                .background(MaterialTheme.colorScheme.surface)
-                .padding(16.dp),
-        ) {
-            Column {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        "Quick Copy",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface,
+            // Main bubble
+            Box(
+                modifier = Modifier
+                    .size(BUBBLE_SIZE_DP.dp)
+                    .shadow(16.dp, CircleShape)
+                    .clip(CircleShape)
+                    .background(
+                        Brush.linearGradient(
+                            colors = listOf(Color(0xFF12324A), Color(0xFF0F766E), Color(0xFF06B6D4)),
+                            start = Offset.Zero,
+                            end = Offset(90f, 90f),
+                        ),
                     )
-                    IconButton(onClick = onClose) {
-                        Icon(
-                            Icons.Default.Close,
-                            contentDescription = "Close",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+                    .border(width = 2.5.dp, color = Color.White, shape = CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (avatarUrl != null) {
+                    AsyncImage(
+                        model = avatarUrl,
+                        contentDescription = "Profile",
+                        modifier = Modifier
+                            .size(BUBBLE_SIZE_DP.dp)
+                            .clip(CircleShape),
+                        contentScale = ContentScale.Crop,
+                    )
+                } else {
+                    Text(
+                        text = initial,
+                        color = Color.White,
+                        fontSize = 23.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
                 }
+            }
 
-                Spacer(Modifier.height(8.dp))
-
-                Column(
+            // Active indicator dot
+            Box(
+                modifier = Modifier
+                    .size(16.dp)
+                    .align(Alignment.BottomEnd)
+                    .offset(x = (-1).dp, y = (-1).dp)
+                    .clip(CircleShape)
+                    .background(Color.White)
+                    .border(width = 2.dp, color = Color.White, shape = CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(
                     modifier = Modifier
-                        .weight(1f)
-                        .verticalScroll(rememberScrollState()),
-                ) {
-                    if (snippets.isEmpty()) {
-                        Text(
-                            "No profile data yet. Add data in the app first.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    } else {
-                        grouped.forEach { (category, items) ->
-                            Text(
-                                category.replaceFirstChar { it.uppercase() },
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.padding(vertical = 4.dp),
-                            )
-                            FlowRow(
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                verticalArrangement = Arrangement.spacedBy(4.dp),
-                                modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                items.forEach { snippet ->
-                                    SuggestionChip(
-                                        onClick = { onCopy(snippet.label, snippet.value) },
-                                        label = { Text(snippet.label, fontSize = 12.sp) },
-                                        icon = {
-                                            Icon(
-                                                Icons.Default.ContentCopy,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(14.dp),
-                                            )
-                                        },
-                                        colors = SuggestionChipDefaults.suggestionChipColors(
-                                            containerColor = MaterialTheme.colorScheme.primaryContainer,
-                                        ),
-                                    )
-                                }
-                            }
-                            Spacer(Modifier.height(8.dp))
-                        }
-                    }
-                }
+                        .size(11.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF079455)),
+                )
             }
         }
     }

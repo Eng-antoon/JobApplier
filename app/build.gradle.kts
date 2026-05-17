@@ -99,6 +99,9 @@ dependencies {
     // Lifecycle Service (for bubble overlay)
     implementation(libs.androidx.lifecycle.service)
 
+    // Image loading (Coil)
+    implementation(libs.coil.compose)
+
     // PDF & DOCX parsing
     implementation(libs.pdfbox.android)
     implementation(libs.poi.ooxml)

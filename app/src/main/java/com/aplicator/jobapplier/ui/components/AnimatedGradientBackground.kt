@@ -22,10 +22,10 @@ import kotlin.math.sin
 fun AnimatedGradientBackground(
     modifier: Modifier = Modifier,
     colors: List<Color> = listOf(
-        Color(0xFF004182),
-        Color(0xFF0A66C2),
-        Color(0xFF0073B1),
-        Color(0xFF004182),
+        Color(0xFF0B1220),
+        Color(0xFF12324A),
+        Color(0xFF0F766E),
+        Color(0xFF06B6D4),
     ),
     content: @Composable () -> Unit = {}
 ) {
