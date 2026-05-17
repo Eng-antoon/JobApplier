@@ -100,15 +100,25 @@ fun SaasCard(
         .shadow(5.dp, shape, ambientColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.04f))
         .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f), shape)
 
-    Card(
-        modifier = cardModifier,
-        shape = shape,
-        colors = CardDefaults.cardColors(containerColor = containerColor),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        onClick = onClick ?: {},
-        enabled = onClick != null,
-    ) {
-        Column(Modifier.padding(contentPadding), content = content)
+    if (onClick != null) {
+        Card(
+            modifier = cardModifier,
+            shape = shape,
+            colors = CardDefaults.cardColors(containerColor = containerColor),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+            onClick = onClick,
+        ) {
+            Column(Modifier.padding(contentPadding), content = content)
+        }
+    } else {
+        Card(
+            modifier = cardModifier,
+            shape = shape,
+            colors = CardDefaults.cardColors(containerColor = containerColor),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        ) {
+            Column(Modifier.padding(contentPadding), content = content)
+        }
     }
 }
 

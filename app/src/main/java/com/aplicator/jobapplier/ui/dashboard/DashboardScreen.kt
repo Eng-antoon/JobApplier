@@ -6,7 +6,6 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -249,8 +248,9 @@ fun DashboardScreen(
 @Composable
 private fun JobCard(job: JobDescription, onClick: () -> Unit) {
     SaasCard(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+        modifier = Modifier.fillMaxWidth(),
         contentPadding = 14.dp,
+        onClick = onClick,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             CompanyAvatar(job.companyName)

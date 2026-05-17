@@ -1,7 +1,6 @@
 package com.aplicator.jobapplier.service
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -22,13 +21,15 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Launch
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.WorkOutline
@@ -45,7 +46,6 @@ import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -63,6 +63,11 @@ import androidx.compose.ui.unit.sp
 import com.aplicator.jobapplier.ui.components.generatedContentLabel
 import com.aplicator.jobapplier.ui.snippets.SnippetItem
 
+private sealed interface BubblePage {
+    data class TopLevel(val page: BubblePanelPage) : BubblePage
+    data class JobDetail(val job: BubbleJobItem) : BubblePage
+}
+
 @Composable
 fun BubbleExpandedPanel(
     userName: String,
@@ -75,10 +80,17 @@ fun BubbleExpandedPanel(
     onAddJob: () -> Unit,
     onDismissBubble: () -> Unit,
     onRefresh: () -> Unit,
+    generatingActionKey: String?,
+    onGenerate: (BubbleJobItem, BubbleAiAction, String?) -> Unit,
 ) {
-    var selectedTab by remember { mutableIntStateOf(0) }
-    val tabs = listOf("Quick Copy", "Smart Fill", "Actions")
+    var page by remember { mutableStateOf<BubblePage>(BubblePage.TopLevel(DefaultBubblePanelPage)) }
+    val tabs = listOf(
+        BubblePanelPage.SmartFill to "Smart Fill",
+        BubblePanelPage.QuickCopy to "Quick Copy",
+        BubblePanelPage.Actions to "Actions",
+    )
     val firstName = userName.split(" ").firstOrNull() ?: userName
+    val topLevelPage = (page as? BubblePage.TopLevel)?.page
 
     Column(
         modifier = Modifier
@@ -96,37 +108,52 @@ fun BubbleExpandedPanel(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(CircleShape)
-                        .background(
-                            Brush.linearGradient(
-                                listOf(Color(0xFF12324A), Color(0xFF0F766E), Color(0xFF06B6D4)),
-                                start = Offset.Zero,
-                                end = Offset(60f, 60f),
+                val detailPage = page as? BubblePage.JobDetail
+                if (detailPage != null) {
+                    IconButton(onClick = { page = BubblePage.TopLevel(BubblePanelPage.SmartFill) }) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(
+                                Brush.linearGradient(
+                                    listOf(Color(0xFF12324A), Color(0xFF0F766E), Color(0xFF06B6D4)),
+                                    start = Offset.Zero,
+                                    end = Offset(60f, 60f),
+                                ),
                             ),
-                        ),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = firstName.firstOrNull()?.uppercase() ?: "J",
-                        color = Color.White,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = firstName.firstOrNull()?.uppercase() ?: "J",
+                            color = Color.White,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
                 }
                 Spacer(Modifier.width(10.dp))
                 Column {
                     Text(
-                        text = "Hi, $firstName",
+                        text = detailPage?.job?.roleTitle ?: "Hi, $firstName",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        text = "Quick fill assistant",
+                        text = detailPage?.job?.companyName ?: "Quick fill assistant",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
@@ -139,40 +166,49 @@ fun BubbleExpandedPanel(
             }
         }
 
-        // Tabs
-        TabRow(
-            selectedTabIndex = selectedTab,
-            containerColor = MaterialTheme.colorScheme.surface,
-        ) {
-            tabs.forEachIndexed { index, title ->
-                Tab(
-                    selected = selectedTab == index,
-                    onClick = { selectedTab = index },
-                    text = {
-                        Text(
-                            title,
-                            fontSize = 13.sp,
-                            fontWeight = if (selectedTab == index) FontWeight.SemiBold else FontWeight.Normal,
-                        )
-                    },
-                )
+        if (topLevelPage != null) {
+            TabRow(
+                selectedTabIndex = tabs.indexOfFirst { it.first == topLevelPage }.coerceAtLeast(0),
+                containerColor = MaterialTheme.colorScheme.surface,
+            ) {
+                tabs.forEach { (tabPage, title) ->
+                    Tab(
+                        selected = topLevelPage == tabPage,
+                        onClick = { page = BubblePage.TopLevel(tabPage) },
+                        text = {
+                            Text(
+                                title,
+                                fontSize = 13.sp,
+                                fontWeight = if (topLevelPage == tabPage) FontWeight.SemiBold else FontWeight.Normal,
+                            )
+                        },
+                    )
+                }
             }
         }
 
-        // Tab content
-        when (selectedTab) {
-            0 -> QuickCopyTab(snippets = snippets, onCopy = onCopy)
-            1 -> SmartFillTab(
-                snippets = snippets,
-                recentJobs = recentJobs,
-                generatedContent = generatedContent,
+        when (val currentPage = page) {
+            is BubblePage.TopLevel -> when (currentPage.page) {
+                BubblePanelPage.SmartFill -> SmartFillTab(
+                    snippets = snippets,
+                    recentJobs = recentJobs,
+                    onCopy = onCopy,
+                    onJobClick = { page = BubblePage.JobDetail(it) },
+                )
+                BubblePanelPage.QuickCopy -> QuickCopyTab(snippets = snippets, onCopy = onCopy)
+                BubblePanelPage.Actions -> ActionsTab(
+                    onOpenApp = onOpenApp,
+                    onAddJob = onAddJob,
+                    onDismissBubble = onDismissBubble,
+                    onRefresh = onRefresh,
+                )
+            }
+            is BubblePage.JobDetail -> BubbleJobDetailPage(
+                job = currentPage.job,
+                content = generatedContent[currentPage.job.jobId] ?: emptyList(),
+                generatingActionKey = generatingActionKey,
                 onCopy = onCopy,
-            )
-            2 -> ActionsTab(
-                onOpenApp = onOpenApp,
-                onAddJob = onAddJob,
-                onDismissBubble = onDismissBubble,
-                onRefresh = onRefresh,
+                onGenerate = onGenerate,
             )
         }
     }
@@ -254,10 +290,6 @@ private fun CollapsibleCategoryHeader(
     onCopy: (String, String) -> Unit,
 ) {
     var expanded by remember { mutableStateOf(category == "personal") }
-    val rotation by animateFloatAsState(
-        targetValue = if (expanded) 0f else -90f,
-        label = "chevron",
-    )
 
     Column {
         Row(
@@ -344,8 +376,8 @@ private fun SnippetCardRow(
 private fun SmartFillTab(
     snippets: List<SnippetItem>,
     recentJobs: List<BubbleJobItem>,
-    generatedContent: Map<String, List<BubbleContentItem>>,
     onCopy: (String, String) -> Unit,
+    onJobClick: (BubbleJobItem) -> Unit,
 ) {
     val quickFields = snippets.filter {
         it.category == "personal" && it.label in listOf(
@@ -441,8 +473,7 @@ private fun SmartFillTab(
             items(recentJobs, key = { it.jobId }) { job ->
                 JobCard(
                     job = job,
-                    content = generatedContent[job.jobId] ?: emptyList(),
-                    onCopy = onCopy,
+                    onClick = { onJobClick(job) },
                 )
             }
         }
@@ -454,11 +485,8 @@ private fun SmartFillTab(
 @Composable
 private fun JobCard(
     job: BubbleJobItem,
-    content: List<BubbleContentItem>,
-    onCopy: (String, String) -> Unit,
+    onClick: () -> Unit,
 ) {
-    var expanded by remember { mutableStateOf(false) }
-
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -467,108 +495,238 @@ private fun JobCard(
             containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
         ),
         shape = RoundedCornerShape(10.dp),
+        onClick = onClick,
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { expanded = !expanded },
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = job.roleTitle,
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        text = job.companyName,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    job.matchScore?.let { score ->
-                        val scoreColor = when {
-                            score >= 70 -> Color(0xFF057642)
-                            score >= 40 -> Color(0xFFB24020)
-                            else -> Color(0xFFCC1016)
-                        }
-                        Text(
-                            text = "${score}%",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = scoreColor,
-                        )
-                        Spacer(Modifier.width(6.dp))
-                    }
-                    Icon(
-                        imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                        contentDescription = null,
-                        modifier = Modifier.size(20.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = job.roleTitle,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = job.companyName,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
+            job.matchScore?.let { score ->
+                val scoreColor = when {
+                    score >= 70 -> Color(0xFF057642)
+                    score >= 40 -> Color(0xFFB24020)
+                    else -> Color(0xFFCC1016)
+                }
+                Text(
+                    text = "${score}%",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = scoreColor,
+                )
+                Spacer(Modifier.width(6.dp))
+            }
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
 
-            AnimatedVisibility(visible = expanded) {
-                if (content.isEmpty()) {
-                    Text(
-                        "No generated content yet",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 8.dp),
-                    )
-                } else {
-                    Column(
-                        modifier = Modifier.padding(top = 8.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
+@Composable
+private fun BubbleJobDetailPage(
+    job: BubbleJobItem,
+    content: List<BubbleContentItem>,
+    generatingActionKey: String?,
+    onCopy: (String, String) -> Unit,
+    onGenerate: (BubbleJobItem, BubbleAiAction, String?) -> Unit,
+) {
+    var customQuestion by remember(job.jobId) { mutableStateOf("") }
+    val actions = defaultBubbleAiActions()
+    val standardActions = actions.filterNot { it.contentType == "custom_question" }
+    val customAction = actions.first { it.contentType == "custom_question" }
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        item(key = "application_data_header") {
+            SectionLabel("Application Data")
+        }
+        items(job.applicationCopyItems(), key = { it.label }) { item ->
+            BubbleCopyRow(
+                label = item.label,
+                preview = item.value,
+                onClick = { onCopy(item.label, item.value) },
+            )
+        }
+
+        item(key = "generated_header") {
+            SectionLabel("Crafted Content")
+        }
+
+        if (content.isEmpty()) {
+            item(key = "generated_empty") {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                    ),
+                    shape = RoundedCornerShape(10.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        content.forEach { item ->
-                            val label = generatedContentLabel(item.contentType)
-                            Card(
-                                modifier = Modifier.fillMaxWidth(),
-                                colors = CardDefaults.cardColors(
-                                    containerColor = MaterialTheme.colorScheme.surface,
-                                ),
-                                shape = RoundedCornerShape(8.dp),
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable { onCopy(label, item.content) }
-                                        .padding(10.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = label,
-                                            style = MaterialTheme.typography.labelMedium,
-                                            fontWeight = FontWeight.Medium,
-                                        )
-                                        Text(
-                                            text = "(${item.tone})",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            fontSize = 11.sp,
-                                        )
-                                    }
-                                    Icon(
-                                        Icons.Default.ContentCopy,
-                                        contentDescription = "Copy",
-                                        modifier = Modifier.size(16.dp),
-                                        tint = MaterialTheme.colorScheme.primary,
-                                    )
-                                }
-                            }
-                        }
+                        Icon(
+                            Icons.Default.AutoAwesome,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                        Text(
+                            "Generate content for this job, then tap any row to copy it.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                 }
             }
+        } else {
+            items(content, key = { "${it.contentType}:${it.createdAt}:${it.content.hashCode()}" }) { item ->
+                val label = generatedContentLabel(item.contentType)
+                BubbleCopyRow(
+                    label = label,
+                    preview = item.content,
+                    onClick = { onCopy(label, item.content) },
+                )
+            }
+        }
+
+        item(key = "actions_header") {
+            SectionLabel("Generate")
+        }
+        items(standardActions, key = { it.contentType }) { action ->
+            GenerateActionButton(
+                action = action,
+                isLoading = generatingActionKey == bubbleActionKey(job.jobId, action.contentType),
+                onClick = { onGenerate(job, action, action.question) },
+            )
+        }
+
+        item(key = "custom_question") {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = customQuestion,
+                    onValueChange = { customQuestion = it },
+                    placeholder = { Text("Type a custom question...", fontSize = 13.sp) },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 2,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                    ),
+                )
+                GenerateActionButton(
+                    action = customAction,
+                    isLoading = generatingActionKey == bubbleActionKey(job.jobId, customAction.contentType),
+                    enabled = customQuestion.isNotBlank(),
+                    onClick = { onGenerate(job, customAction, customQuestion.trim()) },
+                )
+            }
+        }
+
+        item { Spacer(Modifier.height(16.dp)) }
+    }
+}
+
+@Composable
+private fun SectionLabel(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.primary,
+        fontWeight = FontWeight.SemiBold,
+        modifier = Modifier.padding(top = 12.dp, start = 4.dp),
+    )
+}
+
+@Composable
+private fun GenerateActionButton(
+    action: BubbleAiAction,
+    isLoading: Boolean,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
+    FilledTonalButton(
+        onClick = onClick,
+        enabled = enabled && !isLoading,
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(10.dp),
+    ) {
+        Icon(
+            Icons.Default.AutoAwesome,
+            contentDescription = null,
+            modifier = Modifier.size(16.dp),
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(if (isLoading) "Generating..." else action.label, fontSize = 13.sp)
+    }
+}
+
+@Composable
+private fun BubbleCopyRow(
+    label: String,
+    preview: String,
+    onClick: () -> Unit,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(8.dp),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onClick)
+                .padding(10.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Medium,
+                )
+                Text(
+                    text = preview,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Icon(
+                Icons.Default.ContentCopy,
+                contentDescription = "Copy",
+                modifier = Modifier.size(16.dp),
+                tint = MaterialTheme.colorScheme.primary,
+            )
         }
     }
 }
