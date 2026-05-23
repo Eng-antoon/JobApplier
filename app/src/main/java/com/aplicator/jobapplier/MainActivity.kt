@@ -22,6 +22,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.aplicator.jobapplier.analytics.AnalyticsEvent
+import com.aplicator.jobapplier.analytics.AnalyticsEvents
+import com.aplicator.jobapplier.analytics.AnalyticsTracker
 import com.aplicator.jobapplier.data.event.SharedJobTextHolder
 import com.aplicator.jobapplier.ui.auth.AuthViewModel
 import com.aplicator.jobapplier.ui.components.AnimatedSplashContent
@@ -42,9 +45,13 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var sharedJobTextHolder: SharedJobTextHolder
 
+    @Inject
+    lateinit var analyticsTracker: AnalyticsTracker
+
     override fun onCreate(savedInstanceState: Bundle?) {
         val splashScreen = installSplashScreen()
         super.onCreate(savedInstanceState)
+        analyticsTracker.track(AnalyticsEvent(AnalyticsEvents.APP_OPENED))
         enableEdgeToEdge()
         handleShareIntent(intent)
 
@@ -53,7 +60,10 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             JobApplierTheme {
-                AppRoot(onReady = { isReady = true })
+                AppRoot(
+                    analyticsTracker = analyticsTracker,
+                    onReady = { isReady = true },
+                )
             }
         }
     }
@@ -67,6 +77,12 @@ class MainActivity : ComponentActivity() {
         if (intent?.action == Intent.ACTION_SEND && intent.type == "text/plain") {
             intent.getStringExtra(Intent.EXTRA_TEXT)?.let { text ->
                 sharedJobTextHolder.setSharedText(text)
+                analyticsTracker.track(
+                    AnalyticsEvent(
+                        AnalyticsEvents.JOB_ADD_STARTED,
+                        mapOf("entry_point" to "android_share_sheet"),
+                    ),
+                )
             }
         }
     }
@@ -77,7 +93,10 @@ private enum class AppState {
 }
 
 @Composable
-private fun AppRoot(onReady: () -> Unit) {
+private fun AppRoot(
+    analyticsTracker: AnalyticsTracker,
+    onReady: () -> Unit,
+) {
     val authViewModel: AuthViewModel = hiltViewModel()
     val sessionStatus by authViewModel.sessionStatus.collectAsState()
     val isOnboarded by authViewModel.isOnboarded.collectAsState()
@@ -109,6 +128,14 @@ private fun AppRoot(onReady: () -> Unit) {
 
     LaunchedEffect(appState) {
         if (appState != AppState.Loading) onReady()
+        if (appState != AppState.Loading) {
+            analyticsTracker.track(
+                AnalyticsEvent(
+                    AnalyticsEvents.SCREEN_VIEWED,
+                    mapOf("screen" to appState.name.lowercase()),
+                ),
+            )
+        }
         if ((appState == AppState.Main || appState == AppState.Auth)
             && previousAppState == "Onboarding"
         ) {
@@ -144,20 +171,44 @@ private fun AppRoot(onReady: () -> Unit) {
                 val profileViewModel: ProfileViewModel = hiltViewModel()
                 when (onboardingRoute) {
                     "choice" -> OnboardingChoiceScreen(
-                        onResumeImport = { onboardingRoute = "resume_import" },
-                        onManualFill = { onboardingRoute = "manual" },
+                        onResumeImport = {
+                            analyticsTracker.track(
+                                AnalyticsEvent(
+                                    AnalyticsEvents.ONBOARDING_CHOICE_SELECTED,
+                                    mapOf("choice" to "resume_import"),
+                                ),
+                            )
+                            onboardingRoute = "resume_import"
+                        },
+                        onManualFill = {
+                            analyticsTracker.track(
+                                AnalyticsEvent(
+                                    AnalyticsEvents.ONBOARDING_CHOICE_SELECTED,
+                                    mapOf("choice" to "manual"),
+                                ),
+                            )
+                            onboardingRoute = "manual"
+                        },
                     )
                     "resume_import" -> ResumeImportScreen(
                         onBack = { onboardingRoute = "manual" },
                     )
                     "manual" -> OnboardingScreen(
                         viewModel = profileViewModel,
-                        onComplete = { authViewModel.checkOnboardingStatus() },
+                        onComplete = {
+                            analyticsTracker.track(
+                                AnalyticsEvent(
+                                    AnalyticsEvents.ONBOARDING_COMPLETED,
+                                    mapOf("method" to "manual"),
+                                ),
+                            )
+                            authViewModel.checkOnboardingStatus()
+                        },
                     )
                 }
             }
             AppState.Main -> {
-                MainNavGraph()
+                MainNavGraph(analyticsTracker = analyticsTracker)
             }
         }
     }

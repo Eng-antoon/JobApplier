@@ -2,6 +2,9 @@ package com.aplicator.jobapplier.ui.profile
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.aplicator.jobapplier.analytics.AnalyticsEvent
+import com.aplicator.jobapplier.analytics.AnalyticsEvents
+import com.aplicator.jobapplier.analytics.AnalyticsTracker
 import com.aplicator.jobapplier.data.event.ProfileRefreshTrigger
 import com.aplicator.jobapplier.data.repository.AuthRepository
 import com.aplicator.jobapplier.data.repository.ProfileRepository
@@ -42,6 +45,7 @@ class ProfileViewModel @Inject constructor(
     private val profileRepository: ProfileRepository,
     private val bubbleDataProvider: BubbleDataProvider,
     private val profileRefreshTrigger: ProfileRefreshTrigger,
+    private val analyticsTracker: AnalyticsTracker,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ProfileUiState())
@@ -89,6 +93,7 @@ class ProfileViewModel @Inject constructor(
             _uiState.value = _uiState.value.copy(isSaving = true)
             profileRepository.updateProfile(uid, profile)
                 .onSuccess {
+                    analyticsTracker.track(AnalyticsEvent(AnalyticsEvents.PROFILE_UPDATED))
                     _uiState.value = _uiState.value.copy(
                         profile = profile,
                         isSaving = false,

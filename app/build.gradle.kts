@@ -34,6 +34,7 @@ android {
         val supabaseAnonKey = localProps.getProperty("SUPABASE_ANON_KEY") ?: ""
         buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"$supabaseAnonKey\"")
+        buildConfigField("String", "MIXPANEL_TOKEN", "\"216aa44ae1a722dd9e105454a3374e82\"")
     }
 
     buildTypes {
@@ -106,6 +107,10 @@ dependencies {
     // PDF & DOCX parsing
     implementation(libs.pdfbox.android)
     implementation(libs.poi.ooxml)
+
+    // Analytics
+    implementation(libs.mixpanel.android)
+    implementation(libs.mixpanel.session.replay)
 
     // Test
     testImplementation(libs.junit)

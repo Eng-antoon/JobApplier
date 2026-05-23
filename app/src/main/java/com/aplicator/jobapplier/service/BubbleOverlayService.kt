@@ -62,6 +62,11 @@ import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import coil.compose.AsyncImage
 import com.aplicator.jobapplier.MainActivity
+import com.aplicator.jobapplier.analytics.AnalyticsEvent
+import com.aplicator.jobapplier.analytics.AnalyticsEvents
+import com.aplicator.jobapplier.analytics.AnalyticsTracker
+import com.aplicator.jobapplier.data.export.ExportFormat
+import com.aplicator.jobapplier.data.export.GeneratedContentExport
 import com.aplicator.jobapplier.data.repository.AiRepository
 import com.aplicator.jobapplier.data.repository.AuthRepository
 import com.aplicator.jobapplier.data.repository.JobRepository
@@ -75,8 +80,10 @@ import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlin.math.abs
 
@@ -90,6 +97,7 @@ class BubbleOverlayService : LifecycleService(), SavedStateRegistryOwner {
         fun profileRepository(): ProfileRepository
         fun jobRepository(): JobRepository
         fun aiRepository(): AiRepository
+        fun analyticsTracker(): AnalyticsTracker
     }
 
     private lateinit var windowManager: WindowManager
@@ -98,6 +106,7 @@ class BubbleOverlayService : LifecycleService(), SavedStateRegistryOwner {
     private lateinit var profileRepository: ProfileRepository
     private lateinit var jobRepository: JobRepository
     private lateinit var aiRepository: AiRepository
+    private lateinit var analyticsTracker: AnalyticsTracker
     private lateinit var bubblePhysics: BubblePhysics
     private var bubbleView: ComposeView? = null
     private var expandedView: ComposeView? = null
@@ -137,6 +146,13 @@ class BubbleOverlayService : LifecycleService(), SavedStateRegistryOwner {
         profileRepository = entryPoint.profileRepository()
         jobRepository = entryPoint.jobRepository()
         aiRepository = entryPoint.aiRepository()
+        analyticsTracker = entryPoint.analyticsTracker()
+        analyticsTracker.track(
+            AnalyticsEvent(
+                AnalyticsEvents.BUBBLE_LAUNCHED,
+                mapOf("entry_point" to "service_start"),
+            ),
+        )
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, createNotification())
         showBubble()
@@ -189,6 +205,7 @@ class BubbleOverlayService : LifecycleService(), SavedStateRegistryOwner {
     override fun onDestroy() {
         bubblePhysics.release()
         removeBubble()
+        analyticsTracker.flush()
         super.onDestroy()
     }
 
@@ -271,6 +288,7 @@ class BubbleOverlayService : LifecycleService(), SavedStateRegistryOwner {
         var totalMovement = 0f
         var velocityTracker: VelocityTracker? = null
         var isDragging = false
+        var dragTracked = false
 
         view.setOnTouchListener { v, event ->
             if (event.pointerCount > 1) return@setOnTouchListener false
@@ -300,6 +318,10 @@ class BubbleOverlayService : LifecycleService(), SavedStateRegistryOwner {
 
                     if (!isDragging && totalMovement > 10f) {
                         isDragging = true
+                        if (!dragTracked) {
+                            analyticsTracker.track(AnalyticsEvent(AnalyticsEvents.BUBBLE_DRAG_STARTED))
+                            dragTracked = true
+                        }
                         showDismissZone()
                     }
 
@@ -324,6 +346,12 @@ class BubbleOverlayService : LifecycleService(), SavedStateRegistryOwner {
                         hideDismissZone()
                         toggleExpanded()
                     } else if (dismissHighlighted.value) {
+                        analyticsTracker.track(
+                            AnalyticsEvent(
+                                AnalyticsEvents.BUBBLE_DISMISSED,
+                                mapOf("method" to "drag_to_dismiss"),
+                            ),
+                        )
                         val screenHeight = resources.displayMetrics.heightPixels
                         val density = resources.displayMetrics.density
                         bubblePhysics.animateToDismiss(v, params, screenHeight, density) {
@@ -404,6 +432,7 @@ class BubbleOverlayService : LifecycleService(), SavedStateRegistryOwner {
     }
 
     private fun showExpanded() {
+        analyticsTracker.track(AnalyticsEvent(AnalyticsEvents.BUBBLE_OPENED))
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.MATCH_PARENT,
@@ -471,21 +500,67 @@ class BubbleOverlayService : LifecycleService(), SavedStateRegistryOwner {
                                 generatingActionKey = activeGeneration,
                                 onClose = { hideExpanded() },
                                 onCopy = { label, value ->
+                                    analyticsTracker.track(
+                                        AnalyticsEvent(
+                                            AnalyticsEvents.BUBBLE_QUICK_COPY_USED,
+                                            mapOf("item_type" to label),
+                                        ),
+                                    )
                                     copyToClipboard(label, value)
                                     if (BubbleCopyBehavior.dismissPanelAfterCopy) {
                                         hideExpanded()
                                     }
                                 },
-                                onOpenApp = { startMainActivity() },
-                                onAddJob = { startMainActivityForAddJob() },
+                                onOpenApp = {
+                                    analyticsTracker.track(AnalyticsEvent(AnalyticsEvents.BUBBLE_OPEN_APP_CLICKED))
+                                    startMainActivity()
+                                },
+                                onAddJob = {
+                                    analyticsTracker.track(AnalyticsEvent(AnalyticsEvents.BUBBLE_ADD_JOB_CLICKED))
+                                    startMainActivityForAddJob()
+                                },
                                 onDismissBubble = {
+                                    analyticsTracker.track(
+                                        AnalyticsEvent(
+                                            AnalyticsEvents.BUBBLE_DISMISSED,
+                                            mapOf("method" to "actions_tab"),
+                                        ),
+                                    )
                                     hideExpanded()
                                     removeBubble()
                                     stopSelf()
                                 },
-                                onRefresh = { hideExpanded() },
+                                onRefresh = {
+                                    analyticsTracker.track(AnalyticsEvent(AnalyticsEvents.BUBBLE_REFRESH_CLICKED))
+                                    hideExpanded()
+                                },
                                 onGenerate = { job, action, question, tone ->
+                                    analyticsTracker.track(
+                                        AnalyticsEvent(
+                                            AnalyticsEvents.BUBBLE_ACTION_SELECTED,
+                                            mapOf("action" to action.contentType),
+                                        ),
+                                    )
                                     generateBubbleContent(job, action, question, tone)
+                                },
+                                onExport = { _, item, fileName, format ->
+                                    exportBubbleContent(item, fileName, format)
+                                },
+                                onTabSelected = { tabName ->
+                                    analyticsTracker.track(
+                                        AnalyticsEvent(
+                                            AnalyticsEvents.BUBBLE_TAB_SELECTED,
+                                            mapOf("tab_name" to tabName),
+                                        ),
+                                    )
+                                },
+                                onJobSelected = { jobId, roleTitle ->
+                                    analyticsTracker.track(
+                                        AnalyticsEvent(
+                                            AnalyticsEvents.BUBBLE_JOB_SELECTED,
+                                            mapOf("job_id" to jobId, "role_title" to roleTitle),
+                                        ),
+                                    )
                                 },
                             )
                         }
@@ -500,6 +575,14 @@ class BubbleOverlayService : LifecycleService(), SavedStateRegistryOwner {
     }
 
     private fun hideExpanded() {
+        if (isExpanded) {
+            analyticsTracker.track(
+                AnalyticsEvent(
+                    AnalyticsEvents.BUBBLE_CLOSED,
+                    mapOf("method" to "close"),
+                ),
+            )
+        }
         expandedView?.let {
             try {
                 windowManager.removeView(it)
@@ -558,6 +641,16 @@ class BubbleOverlayService : LifecycleService(), SavedStateRegistryOwner {
 
         val actionKey = bubbleActionKey(bubbleJob.jobId, action.contentType)
         lifecycleScope.launch {
+            analyticsTracker.track(
+                AnalyticsEvent(
+                    AnalyticsEvents.AI_CONTENT_GENERATION_STARTED,
+                    mapOf(
+                        "surface" to "bubble",
+                        "content_type" to action.contentType,
+                        "tone" to tone,
+                    ),
+                ),
+            )
             generatingActionKey.value = actionKey
             try {
                 withTimeout(120_000L) {
@@ -614,9 +707,30 @@ class BubbleOverlayService : LifecycleService(), SavedStateRegistryOwner {
                                 ),
                             )
                             refreshBubbleContent(bubbleJob.jobId)
+                            analyticsTracker.track(
+                                AnalyticsEvent(
+                                    AnalyticsEvents.AI_CONTENT_GENERATION_SUCCEEDED,
+                                    mapOf(
+                                        "surface" to "bubble",
+                                        "content_type" to action.contentType,
+                                        "tone" to tone,
+                                    ),
+                                ),
+                            )
                             Toast.makeText(this@BubbleOverlayService, "Generated: ${action.label}", Toast.LENGTH_SHORT).show()
                         }
                         .onFailure { error ->
+                            analyticsTracker.track(
+                                AnalyticsEvent(
+                                    AnalyticsEvents.AI_CONTENT_GENERATION_FAILED,
+                                    mapOf(
+                                        "surface" to "bubble",
+                                        "content_type" to action.contentType,
+                                        "reason" to if (error is com.aplicator.jobapplier.data.remote.ai.QuotaExceededException) "quota_exceeded" else error.javaClass.simpleName,
+                                        "quota_type" to (error as? com.aplicator.jobapplier.data.remote.ai.QuotaExceededException)?.quotaInfo?.quotaType,
+                                    ),
+                                ),
+                            )
                             Toast.makeText(
                                 this@BubbleOverlayService,
                                 quotaAwareMessage(error as Exception),
@@ -627,6 +741,16 @@ class BubbleOverlayService : LifecycleService(), SavedStateRegistryOwner {
             } catch (e: CancellationException) {
                 throw e
             } catch (exception: Exception) {
+                analyticsTracker.track(
+                    AnalyticsEvent(
+                        AnalyticsEvents.AI_CONTENT_GENERATION_FAILED,
+                        mapOf(
+                            "surface" to "bubble",
+                            "content_type" to action.contentType,
+                            "reason" to exception.javaClass.simpleName,
+                        ),
+                    ),
+                )
                 Toast.makeText(
                     this@BubbleOverlayService,
                     quotaAwareMessage(exception),
@@ -682,6 +806,44 @@ class BubbleOverlayService : LifecycleService(), SavedStateRegistryOwner {
         clipboard.setPrimaryClip(ClipData.newPlainText(label, value))
         expandedView?.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
         Toast.makeText(this, "Copied: $label", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun exportBubbleContent(
+        item: BubbleContentItem,
+        fileName: String,
+        format: ExportFormat,
+    ) {
+        lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                GeneratedContentExport.saveToDownloads(
+                    context = this@BubbleOverlayService,
+                    userFileName = fileName,
+                    content = item.content,
+                    format = format,
+                )
+            }
+            result
+                .onSuccess { savedName ->
+                    analyticsTracker.track(
+                        AnalyticsEvent(
+                            AnalyticsEvents.GENERATED_CONTENT_EXPORTED,
+                            mapOf(
+                                "surface" to "bubble",
+                                "content_type" to item.contentType,
+                                "format" to format.name.lowercase(),
+                            ),
+                        ),
+                    )
+                    Toast.makeText(this@BubbleOverlayService, "Saved to Downloads: $savedName", Toast.LENGTH_LONG).show()
+                }
+                .onFailure { error ->
+                    Toast.makeText(
+                        this@BubbleOverlayService,
+                        error.message ?: "Could not export answer",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
+        }
     }
 
     @Composable

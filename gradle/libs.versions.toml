@@ -22,6 +22,8 @@ splashscreen = "1.0.1"
 coil = "2.7.0"
 pdfboxAndroid = "2.0.27.0"
 poiOoxml = "5.2.5"
+mixpanelAndroid = "8.7.0"
+mixpanelSessionReplay = "1.4.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -76,6 +78,10 @@ coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coi
 # PDF & DOCX
 pdfbox-android = { group = "com.tom-roush", name = "pdfbox-android", version.ref = "pdfboxAndroid" }
 poi-ooxml = { group = "org.apache.poi", name = "poi-ooxml", version.ref = "poiOoxml" }
+
+# Analytics
+mixpanel-android = { group = "com.mixpanel.android", name = "mixpanel-android", version.ref = "mixpanelAndroid" }
+mixpanel-session-replay = { group = "com.mixpanel.android", name = "mixpanel-android-session-replay", version.ref = "mixpanelSessionReplay" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

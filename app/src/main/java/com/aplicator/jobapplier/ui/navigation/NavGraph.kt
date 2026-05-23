@@ -40,6 +40,10 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
+import com.aplicator.jobapplier.analytics.AnalyticsEvent
+import com.aplicator.jobapplier.analytics.AnalyticsEvents
+import com.aplicator.jobapplier.analytics.AnalyticsTracker
+import com.aplicator.jobapplier.analytics.NoOpAnalyticsTracker
 import com.aplicator.jobapplier.ui.auth.AuthViewModel
 import com.aplicator.jobapplier.ui.auth.LoginScreen
 import com.aplicator.jobapplier.ui.auth.SignUpScreen
@@ -100,6 +104,7 @@ fun AuthNavGraph(
 @Composable
 fun MainNavGraph(
     authViewModel: AuthViewModel = hiltViewModel(),
+    analyticsTracker: AnalyticsTracker = NoOpAnalyticsTracker,
 ) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -107,6 +112,17 @@ fun MainNavGraph(
     val jobViewModel: JobViewModel = hiltViewModel()
     val profileViewModel: ProfileViewModel = hiltViewModel()
     val sharedText by jobViewModel.sharedJobText.collectAsState()
+
+    LaunchedEffect(currentDestination?.route) {
+        currentDestination?.route?.let { route ->
+            analyticsTracker.track(
+                AnalyticsEvent(
+                    AnalyticsEvents.SCREEN_VIEWED,
+                    mapOf("screen" to route.substringAfterLast(".")),
+                ),
+            )
+        }
+    }
 
     LaunchedEffect(sharedText) {
         if (sharedText != null) {
@@ -169,6 +185,7 @@ fun MainNavGraph(
                     viewModel = jobViewModel,
                     onAddJob = { navController.navigate(Screen.AddJob) },
                     onJobClick = { jobId -> navController.navigate(Screen.JobDetail(jobId)) },
+                    analyticsTracker = analyticsTracker,
                 )
             }
             composable<Screen.Profile> {
@@ -211,6 +228,7 @@ fun MainNavGraph(
                     jobId = route.jobId,
                     viewModel = jobViewModel,
                     onBack = { navController.popBackStack() },
+                    analyticsTracker = analyticsTracker,
                 )
             }
             composable<Screen.ResumeImport>(

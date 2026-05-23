@@ -57,6 +57,7 @@ import com.aplicator.jobapplier.ui.components.PremiumLoadingIndicator
 import com.aplicator.jobapplier.ui.components.QuotaExceededDialog
 import com.aplicator.jobapplier.ui.components.QuotaRequestSuccessDialog
 import com.aplicator.jobapplier.ui.components.ResumeParseWarningDialog
+import com.mixpanel.android.sessionreplay.extensions.mpReplaySensitive
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -227,6 +228,7 @@ private fun PreviewContent(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .mpReplaySensitive(true)
             .verticalScroll(rememberScrollState()),
     ) {
         Text(

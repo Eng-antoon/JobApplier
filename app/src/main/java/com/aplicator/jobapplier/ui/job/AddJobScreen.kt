@@ -51,6 +51,7 @@ import com.aplicator.jobapplier.ui.components.SaasCard
 import com.aplicator.jobapplier.ui.components.SaasPrimaryButton
 import com.aplicator.jobapplier.ui.components.SaasScreenBackground
 import com.aplicator.jobapplier.ui.components.SaasSecondaryButton
+import com.mixpanel.android.sessionreplay.extensions.mpReplaySensitive
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -227,7 +228,7 @@ fun AddJobScreen(
                     )
                 }
 
-                SaasCard(modifier = Modifier.fillMaxWidth()) {
+                SaasCard(modifier = Modifier.fillMaxWidth().mpReplaySensitive(true)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("Job description", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
                         SaasSecondaryButton(

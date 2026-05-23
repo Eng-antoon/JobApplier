@@ -2,6 +2,9 @@ package com.aplicator.jobapplier.ui.job
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.aplicator.jobapplier.analytics.AnalyticsEvent
+import com.aplicator.jobapplier.analytics.AnalyticsEvents
+import com.aplicator.jobapplier.analytics.AnalyticsTracker
 import com.aplicator.jobapplier.data.event.SharedJobTextHolder
 import com.aplicator.jobapplier.ui.webextract.WebExtractResult
 import com.aplicator.jobapplier.data.remote.ai.AnalyzeJdResponse
@@ -51,6 +54,7 @@ data class AddJobState(
 data class GenerateState(
     val isGenerating: Boolean = false,
     val generatedText: String? = null,
+    val contentType: String? = null,
     val error: String? = null,
 )
 
@@ -70,6 +74,7 @@ class JobViewModel @Inject constructor(
     private val quotaRepository: QuotaRepository,
     private val sharedJobTextHolder: SharedJobTextHolder,
     private val bubbleDataProvider: BubbleDataProvider,
+    private val analyticsTracker: AnalyticsTracker,
 ) : ViewModel() {
 
     private val _jobListState = MutableStateFlow(JobListState())
@@ -159,6 +164,15 @@ class JobViewModel @Inject constructor(
     fun analyzeJob(companyName: String, roleTitle: String, rawText: String, sourceUrl: String?) {
         val uid = userId ?: return
         viewModelScope.launch {
+            analyticsTracker.track(
+                AnalyticsEvent(
+                    AnalyticsEvents.JOB_ANALYSIS_STARTED,
+                    mapOf(
+                        "source_type" to sourceType(sourceUrl, rawText),
+                        "description_length_bucket" to lengthBucket(rawText.length),
+                    ),
+                ),
+            )
             _addJobState.value = AddJobState(isAnalyzing = true)
 
             val job = JobDescription(
@@ -189,6 +203,12 @@ class JobViewModel @Inject constructor(
                     val requirementsJson = Json.encodeToString(kotlinx.serialization.json.JsonArray(reqList.map { kotlinx.serialization.json.JsonPrimitive(it) }))
                     jobRepository.updateJobAnalysis(jobId, response.matchScore, matchDetailsJson, requirementsJson)
                     _addJobState.value = AddJobState(analyzedJobId = jobId)
+                    analyticsTracker.track(
+                        AnalyticsEvent(
+                            AnalyticsEvents.JOB_ANALYSIS_SUCCEEDED,
+                            mapOf("match_score_bucket" to scoreBucket(response.matchScore)),
+                        ),
+                    )
                     loadJobs()
                     loadQuotaStatus()
                 }
@@ -197,8 +217,23 @@ class JobViewModel @Inject constructor(
                         _quotaExceeded.value = error.quotaInfo
                         checkPendingRequest(error.quotaInfo.quotaType)
                         _addJobState.value = AddJobState()
+                        analyticsTracker.track(
+                            AnalyticsEvent(
+                                AnalyticsEvents.JOB_ANALYSIS_FAILED,
+                                mapOf(
+                                    "reason" to "quota_exceeded",
+                                    "quota_type" to error.quotaInfo.quotaType,
+                                ),
+                            ),
+                        )
                     } else {
                         _addJobState.value = AddJobState(error = error.message)
+                        analyticsTracker.track(
+                            AnalyticsEvent(
+                                AnalyticsEvents.JOB_ANALYSIS_FAILED,
+                                mapOf("reason" to error.javaClass.simpleName),
+                            ),
+                        )
                     }
                 }
         }
@@ -207,6 +242,16 @@ class JobViewModel @Inject constructor(
     fun generateContent(jobId: String, contentType: String, tone: String, question: String? = null) {
         val uid = userId ?: return
         viewModelScope.launch {
+            analyticsTracker.track(
+                AnalyticsEvent(
+                    AnalyticsEvents.AI_CONTENT_GENERATION_STARTED,
+                    mapOf(
+                        "surface" to "app",
+                        "content_type" to contentType,
+                        "tone" to tone,
+                    ),
+                ),
+            )
             _generateState.value = GenerateState(isGenerating = true)
 
             val job = jobRepository.getJob(jobId).getOrNull()
@@ -231,7 +276,17 @@ class JobViewModel @Inject constructor(
 
             result
                 .onSuccess { response ->
-                    _generateState.value = GenerateState(generatedText = response.content)
+                    _generateState.value = GenerateState(generatedText = response.content, contentType = contentType)
+                    analyticsTracker.track(
+                        AnalyticsEvent(
+                            AnalyticsEvents.AI_CONTENT_GENERATION_SUCCEEDED,
+                            mapOf(
+                                "surface" to "app",
+                                "content_type" to contentType,
+                                "tone" to tone,
+                            ),
+                        ),
+                    )
                     loadQuotaStatus()
                     jobRepository.insertGeneratedContent(
                         uid,
@@ -249,8 +304,29 @@ class JobViewModel @Inject constructor(
                         _quotaExceeded.value = error.quotaInfo
                         checkPendingRequest(error.quotaInfo.quotaType)
                         _generateState.value = GenerateState()
+                        analyticsTracker.track(
+                            AnalyticsEvent(
+                                AnalyticsEvents.AI_CONTENT_GENERATION_FAILED,
+                                mapOf(
+                                    "surface" to "app",
+                                    "content_type" to contentType,
+                                    "reason" to "quota_exceeded",
+                                    "quota_type" to error.quotaInfo.quotaType,
+                                ),
+                            ),
+                        )
                     } else {
                         _generateState.value = GenerateState(error = error.message)
+                        analyticsTracker.track(
+                            AnalyticsEvent(
+                                AnalyticsEvents.AI_CONTENT_GENERATION_FAILED,
+                                mapOf(
+                                    "surface" to "app",
+                                    "content_type" to contentType,
+                                    "reason" to error.javaClass.simpleName,
+                                ),
+                            ),
+                        )
                     }
                 }
         }
@@ -258,7 +334,17 @@ class JobViewModel @Inject constructor(
 
     fun updateJobStatus(jobId: String, status: String) {
         viewModelScope.launch {
+            val oldStatus = _jobDetailState.value.job?.status
             jobRepository.updateJobStatus(jobId, status)
+            analyticsTracker.track(
+                AnalyticsEvent(
+                    AnalyticsEvents.JOB_STATUS_CHANGED,
+                    mapOf(
+                        "from_status" to (oldStatus ?: "unknown"),
+                        "to_status" to status,
+                    ),
+                ),
+            )
             loadJobDetail(jobId)
             loadJobs()
         }
@@ -280,6 +366,13 @@ class JobViewModel @Inject constructor(
     }
 
     fun fetchJobFromUrl(url: String) {
+        val type = urlSourceType(url)
+        analyticsTracker.track(
+            AnalyticsEvent(
+                AnalyticsEvents.JOB_SOURCE_FETCH_STARTED,
+                mapOf("source_type" to type),
+            ),
+        )
         if (url.lowercase().contains("linkedin.com/job")) {
             _linkedInUrlToExtract.value = url
             return
@@ -290,12 +383,32 @@ class JobViewModel @Inject constructor(
             result
                 .onSuccess { response ->
                     if (response.success) {
+                        analyticsTracker.track(
+                            AnalyticsEvent(
+                                AnalyticsEvents.JOB_SOURCE_FETCH_SUCCEEDED,
+                                mapOf(
+                                    "source_type" to type,
+                                    "has_company" to !response.company.isNullOrBlank(),
+                                    "has_title" to !response.title.isNullOrBlank(),
+                                    "has_description" to !response.description.isNullOrBlank(),
+                                ),
+                            ),
+                        )
                         _fetchUrlState.value = FetchUrlState.Success(
                             title = response.title,
                             company = response.company,
                             description = response.description,
                         )
                     } else {
+                        analyticsTracker.track(
+                            AnalyticsEvent(
+                                AnalyticsEvents.JOB_SOURCE_FETCH_FAILED,
+                                mapOf(
+                                    "source_type" to type,
+                                    "reason" to (response.reason ?: "unknown"),
+                                ),
+                            ),
+                        )
                         _fetchUrlState.value = FetchUrlState.Failed(reason = response.reason)
                     }
                 }
@@ -304,7 +417,26 @@ class JobViewModel @Inject constructor(
                         _quotaExceeded.value = error.quotaInfo
                         checkPendingRequest(error.quotaInfo.quotaType)
                         _fetchUrlState.value = FetchUrlState.Idle
+                        analyticsTracker.track(
+                            AnalyticsEvent(
+                                AnalyticsEvents.JOB_SOURCE_FETCH_FAILED,
+                                mapOf(
+                                    "source_type" to type,
+                                    "reason" to "quota_exceeded",
+                                    "quota_type" to error.quotaInfo.quotaType,
+                                ),
+                            ),
+                        )
                     } else {
+                        analyticsTracker.track(
+                            AnalyticsEvent(
+                                AnalyticsEvents.JOB_SOURCE_FETCH_FAILED,
+                                mapOf(
+                                    "source_type" to type,
+                                    "reason" to error.javaClass.simpleName,
+                                ),
+                            ),
+                        )
                         _fetchUrlState.value = FetchUrlState.Failed(reason = error.message)
                     }
                 }
@@ -314,12 +446,29 @@ class JobViewModel @Inject constructor(
     fun onWebExtractResult(result: WebExtractResult?) {
         _linkedInUrlToExtract.value = null
         if (result != null && (result.title != null || result.description != null)) {
+            analyticsTracker.track(
+                AnalyticsEvent(
+                    AnalyticsEvents.JOB_SOURCE_FETCH_SUCCEEDED,
+                    mapOf(
+                        "source_type" to "linkedin",
+                        "has_company" to !result.company.isNullOrBlank(),
+                        "has_title" to !result.title.isNullOrBlank(),
+                        "has_description" to !result.description.isNullOrBlank(),
+                    ),
+                ),
+            )
             _fetchUrlState.value = FetchUrlState.Success(
                 title = result.title,
                 company = result.company,
                 description = result.description,
             )
         } else {
+            analyticsTracker.track(
+                AnalyticsEvent(
+                    AnalyticsEvents.JOB_SOURCE_FETCH_FAILED,
+                    mapOf("source_type" to "linkedin", "reason" to "extraction_failed"),
+                ),
+            )
             _fetchUrlState.value = FetchUrlState.Failed(reason = "extraction_failed")
         }
     }
@@ -401,14 +550,34 @@ class JobViewModel @Inject constructor(
     fun requestExtraQuota() {
         val quota = _quotaExceeded.value ?: return
         val uid = userId ?: return
+        analyticsTracker.track(
+            AnalyticsEvent(
+                AnalyticsEvents.QUOTA_EXTRA_REQUESTED,
+                mapOf("quota_type" to quota.quotaType, "surface" to "app"),
+            ),
+        )
         viewModelScope.launch {
             quotaRepository.requestExtraQuota(uid, quota.quotaType)
                 .onSuccess {
+                    analyticsTracker.track(
+                        AnalyticsEvent(
+                            AnalyticsEvents.QUOTA_EXTRA_REQUEST_SUCCEEDED,
+                            mapOf("quota_type" to quota.quotaType, "surface" to "app"),
+                        ),
+                    )
                     _quotaRequestSuccessType.value = quota.quotaType
                     _quotaRequestSuccess.value = true
                     _quotaExceeded.value = null
                     _quotaRequestPending.value = true
                     loadQuotaStatus()
+                }
+                .onFailure {
+                    analyticsTracker.track(
+                        AnalyticsEvent(
+                            AnalyticsEvents.QUOTA_EXTRA_REQUEST_FAILED,
+                            mapOf("quota_type" to quota.quotaType, "surface" to "app"),
+                        ),
+                    )
                 }
         }
     }
@@ -417,6 +586,34 @@ class JobViewModel @Inject constructor(
         val uid = userId ?: return
         viewModelScope.launch {
             _quotaRequestPending.value = quotaRepository.hasPendingRequest(uid, type).getOrDefault(false)
+        }
+    }
+
+    private fun sourceType(sourceUrl: String?, rawText: String): String {
+        return when {
+            !sourceUrl.isNullOrBlank() -> urlSourceType(sourceUrl)
+            rawText.isNotBlank() -> "manual_paste"
+            else -> "unknown"
+        }
+    }
+
+    private fun urlSourceType(url: String): String {
+        return if (url.lowercase().contains("linkedin.com")) "linkedin" else "manual_url"
+    }
+
+    private fun lengthBucket(length: Int): String {
+        return when {
+            length < 500 -> "short"
+            length < 2_000 -> "medium"
+            else -> "long"
+        }
+    }
+
+    private fun scoreBucket(score: Int): String {
+        return when {
+            score < 40 -> "low"
+            score < 75 -> "medium"
+            else -> "high"
         }
     }
 }

@@ -60,6 +60,7 @@ import com.aplicator.jobapplier.ui.components.SaasScreenBackground
 import com.aplicator.jobapplier.ui.components.ShimmerProfileSection
 import com.aplicator.jobapplier.ui.components.calculateProfileCompleteness
 import com.aplicator.jobapplier.ui.theme.AccentTeal
+import com.mixpanel.android.sessionreplay.extensions.mpReplaySensitive
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -173,7 +174,7 @@ fun ProfileScreen(
                     }
                 }
 
-                SaasCard(Modifier.fillMaxWidth()) {
+                SaasCard(Modifier.fillMaxWidth().mpReplaySensitive(true)) {
                     Text("Personal information", style = MaterialTheme.typography.titleMedium)
                     Spacer(Modifier.height(12.dp))
                     if (isEditing) {

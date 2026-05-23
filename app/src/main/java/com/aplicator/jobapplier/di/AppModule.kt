@@ -5,6 +5,8 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.preferencesDataStore
 import com.aplicator.jobapplier.BuildConfig
+import com.aplicator.jobapplier.analytics.AnalyticsTracker
+import com.aplicator.jobapplier.analytics.MixpanelAnalyticsTracker
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -44,5 +46,11 @@ object AppModule {
     @Singleton
     fun provideDataStore(@ApplicationContext context: Context): DataStore<Preferences> {
         return context.dataStore
+    }
+
+    @Provides
+    @Singleton
+    fun provideAnalyticsTracker(@ApplicationContext context: Context): AnalyticsTracker {
+        return MixpanelAnalyticsTracker(context)
     }
 }

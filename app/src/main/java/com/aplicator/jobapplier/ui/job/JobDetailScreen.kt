@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.QuestionAnswer
 import androidx.compose.material.icons.filled.Title
@@ -58,8 +59,14 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.aplicator.jobapplier.analytics.AnalyticsEvent
+import com.aplicator.jobapplier.analytics.AnalyticsEvents
+import com.aplicator.jobapplier.analytics.AnalyticsTracker
+import com.aplicator.jobapplier.analytics.NoOpAnalyticsTracker
+import com.aplicator.jobapplier.data.export.ExportFormat
+import com.aplicator.jobapplier.data.export.GeneratedContentExport
 import com.aplicator.jobapplier.ui.components.CompanyAvatar
-import com.aplicator.jobapplier.ui.components.CopyCard
+import com.aplicator.jobapplier.ui.components.GeneratedContentExportDialog
 import com.aplicator.jobapplier.ui.components.MatchScoreRing
 import com.aplicator.jobapplier.ui.components.PremiumLoadingIndicator
 import com.aplicator.jobapplier.ui.components.QuotaExceededDialog
@@ -77,7 +84,15 @@ import com.aplicator.jobapplier.ui.components.scoreColor
 import com.aplicator.jobapplier.ui.theme.AccentCyan
 import com.aplicator.jobapplier.ui.theme.MatchHigh
 import com.aplicator.jobapplier.ui.theme.MatchLow
+import com.mixpanel.android.sessionreplay.extensions.mpReplaySensitive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
+private data class ContentExportTarget(
+    val label: String,
+    val content: String,
+)
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -85,6 +100,7 @@ fun JobDetailScreen(
     jobId: String,
     viewModel: JobViewModel,
     onBack: () -> Unit,
+    analyticsTracker: AnalyticsTracker = NoOpAnalyticsTracker,
 ) {
     val detailState by viewModel.jobDetailState.collectAsState()
     val generateState by viewModel.generateState.collectAsState()
@@ -98,6 +114,7 @@ fun JobDetailScreen(
     val scope = rememberCoroutineScope()
     var customQuestion by rememberSaveable { mutableStateOf("") }
     var selectedTone by rememberSaveable { mutableStateOf("professional") }
+    var exportTarget by remember { mutableStateOf<ContentExportTarget?>(null) }
 
     quotaExceeded?.let { quota ->
         QuotaExceededDialog(
@@ -115,7 +132,22 @@ fun JobDetailScreen(
         )
     }
 
-    LaunchedEffect(jobId) { viewModel.loadJobDetail(jobId) }
+    LaunchedEffect(jobId) {
+        viewModel.loadJobDetail(jobId)
+    }
+    LaunchedEffect(detailState.job?.id) {
+        detailState.job?.let { job ->
+            analyticsTracker.track(
+                AnalyticsEvent(
+                    AnalyticsEvents.JOB_DETAIL_VIEWED,
+                    mapOf(
+                        "has_match_score" to (job.matchScore != null),
+                        "status" to job.status,
+                    ),
+                ),
+            )
+        }
+    }
     LaunchedEffect(generateState.error) {
         generateState.error?.let { snackbarHostState.showSnackbar(it) }
     }
@@ -123,8 +155,57 @@ fun JobDetailScreen(
     fun copyToClipboard(label: String, text: String) {
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         clipboard.setPrimaryClip(ClipData.newPlainText(label, text))
+        analyticsTracker.track(
+            AnalyticsEvent(
+                AnalyticsEvents.GENERATED_CONTENT_COPIED,
+                mapOf("surface" to "app", "content_type" to label),
+            ),
+        )
         view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
         scope.launch { snackbarHostState.showSnackbar("Copied: $label") }
+    }
+
+    fun suggestedExportName(label: String): String {
+        val job = detailState.job
+        return GeneratedContentExport.suggestedFileName(
+            contentTypeLabel = label,
+            companyName = job?.companyName.orEmpty(),
+            roleTitle = job?.roleTitle.orEmpty(),
+        )
+    }
+
+    fun exportContent(target: ContentExportTarget, fileName: String, format: ExportFormat) {
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                GeneratedContentExport.saveToDownloads(context, fileName, target.content, format)
+            }
+            result
+                .onSuccess { savedName ->
+                    analyticsTracker.track(
+                        AnalyticsEvent(
+                            AnalyticsEvents.GENERATED_CONTENT_EXPORTED,
+                            mapOf(
+                                "surface" to "app",
+                                "content_type" to target.label,
+                                "format" to format.name.lowercase(),
+                            ),
+                        ),
+                    )
+                    snackbarHostState.showSnackbar("Saved to Downloads: $savedName")
+                }
+                .onFailure { error -> snackbarHostState.showSnackbar(error.message ?: "Could not export answer") }
+        }
+    }
+
+    exportTarget?.let { target ->
+        GeneratedContentExportDialog(
+            suggestedFileName = suggestedExportName(target.label),
+            onDismiss = { exportTarget = null },
+            onExport = { fileName, format ->
+                exportTarget = null
+                exportContent(target, fileName, format)
+            },
+        )
     }
 
     Scaffold(
@@ -270,12 +351,16 @@ fun JobDetailScreen(
                 }
 
                 generateState.generatedText?.let { text ->
+                    val label = generatedContentLabel(generateState.contentType ?: "generated_content")
                     SaasCard(
-                        modifier = Modifier.fillMaxWidth().animateContentSize(),
+                        modifier = Modifier.fillMaxWidth().animateContentSize().mpReplaySensitive(true),
                         containerColor = MaterialTheme.colorScheme.secondaryContainer,
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text("Generated content", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                            IconButton(onClick = { exportTarget = ContentExportTarget(label, text) }) {
+                                Icon(Icons.Default.Download, contentDescription = "Export")
+                            }
                             IconButton(onClick = { copyToClipboard("Generated Content", text) }) {
                                 Icon(Icons.Default.ContentCopy, contentDescription = "Copy")
                             }
@@ -287,12 +372,30 @@ fun JobDetailScreen(
                 if (detailState.generatedContent.isNotEmpty()) {
                     Text("Saved content", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                     detailState.generatedContent.forEach { content ->
-                        CopyCard(
-                            label = generatedContentLabel(content.contentType),
-                            value = content.content.take(220) + if (content.content.length > 220) "..." else "",
-                            accent = scoreColor(job.matchScore ?: 0),
-                            onClick = { copyToClipboard(content.contentType, content.content) },
-                        )
+                        val label = generatedContentLabel(content.contentType)
+                        SaasCard(
+                            modifier = Modifier.fillMaxWidth().mpReplaySensitive(true),
+                            contentPadding = 12.dp,
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(label, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                                    Text(
+                                        content.content.take(220) + if (content.content.length > 220) "..." else "",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                                IconButton(onClick = { exportTarget = ContentExportTarget(label, content.content) }) {
+                                    Icon(Icons.Default.Download, contentDescription = "Export")
+                                }
+                                IconButton(onClick = { copyToClipboard(label, content.content) }) {
+                                    Icon(Icons.Default.ContentCopy, contentDescription = "Copy")
+                                }
+                            }
+                        }
                     }
                 }
                 Spacer(Modifier.height(80.dp))

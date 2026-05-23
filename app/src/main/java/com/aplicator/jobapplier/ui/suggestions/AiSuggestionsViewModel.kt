@@ -2,6 +2,9 @@ package com.aplicator.jobapplier.ui.suggestions
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.aplicator.jobapplier.analytics.AnalyticsEvent
+import com.aplicator.jobapplier.analytics.AnalyticsEvents
+import com.aplicator.jobapplier.analytics.AnalyticsTracker
 import com.aplicator.jobapplier.data.remote.ai.AiSuggestionsResponse
 import com.aplicator.jobapplier.data.remote.ai.QuotaExceededException
 import com.aplicator.jobapplier.data.remote.ai.QuotaExceededResponse
@@ -33,6 +36,7 @@ class AiSuggestionsViewModel @Inject constructor(
     private val jobRepository: JobRepository,
     private val quotaRepository: QuotaRepository,
     private val supabaseClient: SupabaseClient,
+    private val analyticsTracker: AnalyticsTracker,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow<SuggestionsState>(SuggestionsState.Loading)
@@ -78,6 +82,7 @@ class AiSuggestionsViewModel @Inject constructor(
     private fun fetchFromAi() {
         viewModelScope.launch {
             _state.value = SuggestionsState.Loading
+            analyticsTracker.track(AnalyticsEvent(AnalyticsEvents.SUGGESTIONS_REFRESHED_STARTED))
 
             val userId = supabaseClient.auth.currentUserOrNull()?.id
             if (userId == null) {
@@ -127,15 +132,28 @@ class AiSuggestionsViewModel @Inject constructor(
 
             _state.value = result.fold(
                 onSuccess = { suggestions ->
+                    analyticsTracker.track(AnalyticsEvent(AnalyticsEvents.SUGGESTIONS_REFRESHED_SUCCEEDED))
                     aiRepository.saveSuggestions(userId, suggestions)
                     SuggestionsState.Success(suggestions)
                 },
                 onFailure = { error ->
                     if (error is QuotaExceededException) {
+                        analyticsTracker.track(
+                            AnalyticsEvent(
+                                AnalyticsEvents.QUOTA_LIMIT_SHOWN,
+                                mapOf("quota_type" to error.quotaInfo.quotaType, "surface" to "suggestions"),
+                            ),
+                        )
                         _quotaExceeded.value = error.quotaInfo
                         checkPendingRequest(error.quotaInfo.quotaType)
                         SuggestionsState.Empty
                     } else {
+                        analyticsTracker.track(
+                            AnalyticsEvent(
+                                AnalyticsEvents.SUGGESTIONS_REFRESHED_FAILED,
+                                mapOf("reason" to error.javaClass.simpleName),
+                            ),
+                        )
                         SuggestionsState.Error(error.message ?: "Failed to generate suggestions")
                     }
                 },

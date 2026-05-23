@@ -2,6 +2,9 @@ package com.aplicator.jobapplier.ui.auth
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.aplicator.jobapplier.analytics.AnalyticsEvent
+import com.aplicator.jobapplier.analytics.AnalyticsEvents
+import com.aplicator.jobapplier.analytics.AnalyticsTracker
 import com.aplicator.jobapplier.data.repository.AuthRepository
 import com.aplicator.jobapplier.data.repository.ProfileRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -23,6 +26,7 @@ data class AuthUiState(
 class AuthViewModel @Inject constructor(
     private val authRepository: AuthRepository,
     private val profileRepository: ProfileRepository,
+    private val analyticsTracker: AnalyticsTracker,
 ) : ViewModel() {
 
     val sessionStatus: StateFlow<SessionStatus> = authRepository.sessionStatus
@@ -36,24 +40,85 @@ class AuthViewModel @Inject constructor(
 
     fun signIn(email: String, password: String) {
         viewModelScope.launch {
+            analyticsTracker.track(AnalyticsEvent(AnalyticsEvents.LOGIN_STARTED))
             _uiState.value = AuthUiState(isLoading = true)
             authRepository.signIn(email, password)
-                .onSuccess { _uiState.value = AuthUiState() }
-                .onFailure { _uiState.value = AuthUiState(error = it.message) }
+                .onSuccess {
+                    val userId = authRepository.getCurrentUserId()
+                    userId?.let(analyticsTracker::identify)
+                    analyticsTracker.track(AnalyticsEvent(AnalyticsEvents.LOGIN_SUCCEEDED))
+                    analyticsTracker.flush()
+                    if (userId != null) {
+                        launch {
+                            profileRepository.getProfile(userId).getOrNull()?.let { profile ->
+                                analyticsTracker.setUserProperties(
+                                    mapOf(
+                                        "display_name" to profile.fullName,
+                                        "desired_role" to profile.desiredRole,
+                                        "is_onboarded" to profile.isOnboarded,
+                                    ),
+                                )
+                            }
+                        }
+                    }
+                    _uiState.value = AuthUiState()
+                }
+                .onFailure {
+                    analyticsTracker.track(
+                        AnalyticsEvent(
+                            AnalyticsEvents.LOGIN_FAILED,
+                            mapOf("reason" to it.javaClass.simpleName),
+                        ),
+                    )
+                    _uiState.value = AuthUiState(error = it.message)
+                }
         }
     }
 
     fun signUp(email: String, password: String, displayName: String) {
         viewModelScope.launch {
+            analyticsTracker.track(AnalyticsEvent(AnalyticsEvents.SIGNUP_STARTED))
             _uiState.value = AuthUiState(isLoading = true)
             authRepository.signUp(email, password, displayName)
-                .onSuccess { _uiState.value = AuthUiState() }
-                .onFailure { _uiState.value = AuthUiState(error = it.message) }
+                .onSuccess {
+                    val userId = authRepository.getCurrentUserId()
+                    userId?.let(analyticsTracker::identify)
+                    analyticsTracker.track(AnalyticsEvent(AnalyticsEvents.SIGNUP_SUCCEEDED))
+                    analyticsTracker.flush()
+                    if (userId != null) {
+                        launch {
+                            profileRepository.getProfile(userId).getOrNull()?.let { profile ->
+                                analyticsTracker.setUserProperties(
+                                    mapOf(
+                                        "display_name" to profile.fullName,
+                                        "is_onboarded" to profile.isOnboarded,
+                                        "signup_date" to java.time.LocalDate.now().toString(),
+                                    ),
+                                )
+                            }
+                        }
+                    }
+                    _uiState.value = AuthUiState()
+                }
+                .onFailure {
+                    analyticsTracker.track(
+                        AnalyticsEvent(
+                            AnalyticsEvents.SIGNUP_FAILED,
+                            mapOf("reason" to it.javaClass.simpleName),
+                        ),
+                    )
+                    _uiState.value = AuthUiState(error = it.message)
+                }
         }
     }
 
     fun signOut() {
-        viewModelScope.launch { authRepository.signOut() }
+        viewModelScope.launch {
+            authRepository.signOut()
+            analyticsTracker.track(AnalyticsEvent(AnalyticsEvents.LOGOUT_SUCCEEDED))
+            analyticsTracker.flush()
+            analyticsTracker.reset()
+        }
     }
 
     fun checkOnboardingStatus() {

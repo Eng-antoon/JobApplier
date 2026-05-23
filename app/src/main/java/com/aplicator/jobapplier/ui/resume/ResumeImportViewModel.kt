@@ -11,6 +11,9 @@ import com.aplicator.jobapplier.data.remote.ai.ParsedExperience
 import com.aplicator.jobapplier.data.remote.ai.ParsedLanguage
 import com.aplicator.jobapplier.data.remote.ai.ParsedResumeResponse
 import com.aplicator.jobapplier.data.remote.ai.ParsedSkill
+import com.aplicator.jobapplier.analytics.AnalyticsEvent
+import com.aplicator.jobapplier.analytics.AnalyticsEvents
+import com.aplicator.jobapplier.analytics.AnalyticsTracker
 import com.aplicator.jobapplier.data.remote.ai.QuotaExceededException
 import com.aplicator.jobapplier.data.remote.ai.QuotaExceededResponse
 import com.aplicator.jobapplier.data.repository.ProfileRepository
@@ -73,6 +76,7 @@ class ResumeImportViewModel @Inject constructor(
     private val quotaRepository: QuotaRepository,
     private val supabaseClient: SupabaseClient,
     private val profileRefreshTrigger: ProfileRefreshTrigger,
+    private val analyticsTracker: AnalyticsTracker,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow<ResumeImportState>(ResumeImportState.Idle)
@@ -117,6 +121,7 @@ class ResumeImportViewModel @Inject constructor(
 
     fun selectFile(uri: Uri, context: Context) {
         viewModelScope.launch {
+            analyticsTracker.track(AnalyticsEvent(AnalyticsEvents.RESUME_IMPORT_STARTED))
             _state.value = ResumeImportState.Extracting
             Log.d("ResumeImport", "Starting text extraction for: $uri")
 
@@ -139,6 +144,7 @@ class ResumeImportViewModel @Inject constructor(
             }
 
             _state.value = ResumeImportState.Parsing
+            analyticsTracker.track(AnalyticsEvent(AnalyticsEvents.RESUME_PARSE_STARTED))
             Log.d("ResumeImport", "Calling AI proxy for parse_resume...")
 
             val parseResult = resumeImportRepository.parseResume(text)
@@ -146,10 +152,22 @@ class ResumeImportViewModel @Inject constructor(
                 val error = parseResult.exceptionOrNull()
                 Log.e("ResumeImport", "Parse failed", error)
                 if (error is QuotaExceededException) {
+                    analyticsTracker.track(
+                        AnalyticsEvent(
+                            AnalyticsEvents.QUOTA_LIMIT_SHOWN,
+                            mapOf("quota_type" to error.quotaInfo.quotaType, "surface" to "resume_import"),
+                        ),
+                    )
                     _quotaExceeded.value = error.quotaInfo
                     checkPendingRequest("resume")
                     _state.value = ResumeImportState.Idle
                 } else {
+                    analyticsTracker.track(
+                        AnalyticsEvent(
+                            AnalyticsEvents.RESUME_PARSE_FAILED,
+                            mapOf("reason" to (error?.javaClass?.simpleName ?: "unknown")),
+                        ),
+                    )
                     _state.value = ResumeImportState.Error(
                         error?.message ?: "Failed to parse resume",
                     )
@@ -158,6 +176,15 @@ class ResumeImportViewModel @Inject constructor(
             }
 
             val response = parseResult.getOrThrow()
+            analyticsTracker.track(
+                AnalyticsEvent(
+                    AnalyticsEvents.RESUME_PARSE_SUCCEEDED,
+                    mapOf(
+                        "skills_count" to response.skills.size,
+                        "experiences_count" to response.experiences.size,
+                    ),
+                ),
+            )
             Log.d("ResumeImport", "Parse success: ${response.skills.size} skills, ${response.experiences.size} experiences")
             if (response.quotaWarning == "last_resume_parse") {
                 _showResumeParseWarning.value = true
@@ -347,6 +374,12 @@ class ResumeImportViewModel @Inject constructor(
                 }
                 profileRefreshTrigger.requestRefresh()
                 savedStateHandle.remove<String>(PARSED_RESPONSE_KEY)
+                analyticsTracker.track(
+                    AnalyticsEvent(
+                        AnalyticsEvents.RESUME_IMPORT_COMPLETED,
+                        mapOf("items_imported" to data.selectedCount, "failures" to failures),
+                    ),
+                )
                 _state.value = ResumeImportState.Done
             } catch (e: Exception) {
                 Log.e("ResumeImport", "Import failed", e)

@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
@@ -53,6 +54,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -69,6 +71,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.aplicator.jobapplier.data.export.ExportFormat
+import com.aplicator.jobapplier.data.export.GeneratedContentExport
 import com.aplicator.jobapplier.ui.components.CompanyAvatar
 import com.aplicator.jobapplier.ui.components.MatchScoreRing
 import com.aplicator.jobapplier.ui.components.SelectableSaasChip
@@ -97,6 +101,9 @@ fun BubbleExpandedPanel(
     onRefresh: () -> Unit,
     generatingActionKey: String?,
     onGenerate: (BubbleJobItem, BubbleAiAction, String?, String) -> Unit,
+    onExport: (BubbleJobItem, BubbleContentItem, String, ExportFormat) -> Unit,
+    onTabSelected: (String) -> Unit = {},
+    onJobSelected: (String, String) -> Unit = { _, _ -> },
 ) {
     var page by remember { mutableStateOf<BubblePage>(BubblePage.TopLevel(DefaultBubblePanelPage)) }
 
@@ -209,7 +216,10 @@ fun BubbleExpandedPanel(
                 tabs.forEach { (tabPage, title) ->
                     Tab(
                         selected = topLevelPage == tabPage,
-                        onClick = { page = BubblePage.TopLevel(tabPage) },
+                        onClick = {
+                            page = BubblePage.TopLevel(tabPage)
+                            onTabSelected(title)
+                        },
                         text = {
                             Text(
                                 title,
@@ -228,7 +238,10 @@ fun BubbleExpandedPanel(
                     snippets = snippets,
                     recentJobs = recentJobs,
                     onCopy = onCopy,
-                    onJobClick = { page = BubblePage.JobDetail(it) },
+                    onJobClick = {
+                        onJobSelected(it.jobId, it.roleTitle)
+                        page = BubblePage.JobDetail(it)
+                    },
                 )
                 BubblePanelPage.QuickCopy -> QuickCopyTab(
                     snippets = snippets,
@@ -247,6 +260,7 @@ fun BubbleExpandedPanel(
                 generatingActionKey = generatingActionKey,
                 onCopy = onCopy,
                 onGenerate = onGenerate,
+                onExport = onExport,
             )
         }
     }
@@ -584,6 +598,13 @@ private fun JobCard(
     }
 }
 
+private data class BubbleExportDraft(
+    val item: BubbleContentItem,
+    val label: String,
+    val fileName: String,
+    val format: ExportFormat = ExportFormat.Pdf,
+)
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun BubbleJobDetailPage(
@@ -592,19 +613,36 @@ private fun BubbleJobDetailPage(
     generatingActionKey: String?,
     onCopy: (String, String) -> Unit,
     onGenerate: (BubbleJobItem, BubbleAiAction, String?, String) -> Unit,
+    onExport: (BubbleJobItem, BubbleContentItem, String, ExportFormat) -> Unit,
 ) {
     var customQuestion by remember(job.jobId) { mutableStateOf("") }
     var selectedTone by remember { mutableStateOf("professional") }
+    var exportDraft by remember { mutableStateOf<BubbleExportDraft?>(null) }
     val actions = defaultBubbleAiActions()
     val standardActions = actions.filterNot { it.contentType == "custom_question" }
     val customAction = actions.first { it.contentType == "custom_question" }
 
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
+    Column(Modifier.fillMaxSize()) {
+        exportDraft?.let { draft ->
+            BubbleExportPanel(
+                draft = draft,
+                onFileNameChange = { exportDraft = draft.copy(fileName = it) },
+                onFormatChange = { exportDraft = draft.copy(format = it) },
+                onDismiss = { exportDraft = null },
+                onSave = {
+                    exportDraft = null
+                    onExport(job, draft.item, draft.fileName, draft.format)
+                },
+            )
+        }
+
+        LazyColumn(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
         // Company header card
         item(key = "company_header") {
             Card(
@@ -835,15 +873,98 @@ private fun BubbleJobDetailPage(
         } else {
             items(content, key = { "${it.contentType}:${it.createdAt}:${it.content.hashCode()}" }) { item ->
                 val label = generatedContentLabel(item.contentType)
-                BubbleCopyRow(
+                BubbleGeneratedContentRow(
                     label = label,
                     preview = item.content,
-                    onClick = { onCopy(label, item.content) },
+                    onCopy = { onCopy(label, item.content) },
+                    onExport = {
+                        exportDraft = BubbleExportDraft(
+                            item = item,
+                            label = label,
+                            fileName = GeneratedContentExport.suggestedFileName(
+                                contentTypeLabel = label,
+                                companyName = job.companyName,
+                                roleTitle = job.roleTitle,
+                            ),
+                        )
+                    },
                 )
             }
         }
 
         item { Spacer(Modifier.height(16.dp)) }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun BubbleExportPanel(
+    draft: BubbleExportDraft,
+    onFileNameChange: (String) -> Unit,
+    onFormatChange: (ExportFormat) -> Unit,
+    onDismiss: () -> Unit,
+    onSave: () -> Unit,
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        shape = RoundedCornerShape(14.dp),
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                text = "Export ${draft.label}",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+            )
+            OutlinedTextField(
+                value = draft.fileName,
+                onValueChange = onFileNameChange,
+                label = { Text("File name") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+            )
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                SelectableSaasChip(
+                    label = "PDF",
+                    selected = draft.format == ExportFormat.Pdf,
+                    onClick = { onFormatChange(ExportFormat.Pdf) },
+                )
+                SelectableSaasChip(
+                    label = "DOCX",
+                    selected = draft.format == ExportFormat.Docx,
+                    onClick = { onFormatChange(ExportFormat.Docx) },
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TextButton(onClick = onDismiss) {
+                    Text("Cancel")
+                }
+                Spacer(Modifier.width(8.dp))
+                FilledTonalButton(
+                    onClick = onSave,
+                    enabled = draft.fileName.isNotBlank(),
+                    shape = RoundedCornerShape(10.dp),
+                ) {
+                    Text("Save")
+                }
+            }
+        }
     }
 }
 
@@ -921,6 +1042,58 @@ private fun BubbleCopyRow(
                 modifier = Modifier.size(16.dp),
                 tint = MaterialTheme.colorScheme.primary,
             )
+        }
+    }
+}
+
+@Composable
+private fun BubbleGeneratedContentRow(
+    label: String,
+    preview: String,
+    onCopy: () -> Unit,
+    onExport: () -> Unit,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        shape = RoundedCornerShape(8.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Medium,
+                )
+                Text(
+                    text = preview,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            IconButton(onClick = onExport) {
+                Icon(
+                    Icons.Default.Download,
+                    contentDescription = "Export",
+                    modifier = Modifier.size(16.dp),
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+            }
+            IconButton(onClick = onCopy) {
+                Icon(
+                    Icons.Default.ContentCopy,
+                    contentDescription = "Copy",
+                    modifier = Modifier.size(16.dp),
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+            }
         }
     }
 }

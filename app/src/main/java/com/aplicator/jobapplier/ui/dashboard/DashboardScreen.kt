@@ -49,6 +49,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.aplicator.jobapplier.analytics.AnalyticsEvent
+import com.aplicator.jobapplier.analytics.AnalyticsEvents
+import com.aplicator.jobapplier.analytics.AnalyticsTracker
+import com.aplicator.jobapplier.analytics.NoOpAnalyticsTracker
 import com.aplicator.jobapplier.domain.model.JobDescription
 import com.aplicator.jobapplier.service.BubbleOverlayService
 import com.aplicator.jobapplier.ui.components.CompanyAvatar
@@ -77,6 +81,7 @@ fun DashboardScreen(
     viewModel: JobViewModel,
     onAddJob: () -> Unit,
     onJobClick: (String) -> Unit,
+    analyticsTracker: AnalyticsTracker = NoOpAnalyticsTracker,
 ) {
     val state by viewModel.jobListState.collectAsState()
     val quotaStatus by viewModel.quotaStatus.collectAsState()
@@ -104,8 +109,15 @@ fun DashboardScreen(
                     IconButton(
                         onClick = {
                             if (Settings.canDrawOverlays(context)) {
+                                analyticsTracker.track(
+                                    AnalyticsEvent(
+                                        AnalyticsEvents.BUBBLE_LAUNCHED,
+                                        mapOf("entry_point" to "dashboard_top_bar"),
+                                    ),
+                                )
                                 context.startForegroundService(Intent(context, BubbleOverlayService::class.java))
                             } else {
+                                analyticsTracker.track(AnalyticsEvent(AnalyticsEvents.BUBBLE_PERMISSION_PROMPT_SHOWN))
                                 showPermissionDialog = true
                             }
                         },
@@ -116,7 +128,18 @@ fun DashboardScreen(
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = onAddJob, containerColor = MaterialTheme.colorScheme.primary) {
+            FloatingActionButton(
+                onClick = {
+                    analyticsTracker.track(
+                        AnalyticsEvent(
+                            AnalyticsEvents.JOB_ADD_STARTED,
+                            mapOf("entry_point" to "dashboard_fab"),
+                        ),
+                    )
+                    onAddJob()
+                },
+                containerColor = MaterialTheme.colorScheme.primary,
+            ) {
                 Icon(Icons.Default.Add, contentDescription = "New Application", tint = MaterialTheme.colorScheme.onPrimary)
             }
         },
@@ -139,7 +162,17 @@ fun DashboardScreen(
                     icon = Icons.Default.WorkOutline,
                     modifier = Modifier.fillMaxSize(),
                     action = {
-                        SaasPrimaryButton(onClick = onAddJob) {
+                        SaasPrimaryButton(
+                            onClick = {
+                                analyticsTracker.track(
+                                    AnalyticsEvent(
+                                        AnalyticsEvents.JOB_ADD_STARTED,
+                                        mapOf("entry_point" to "empty_state"),
+                                    ),
+                                )
+                                onAddJob()
+                            },
+                        ) {
                             Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                             Text("Add application")
                         }
