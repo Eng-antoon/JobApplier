@@ -164,7 +164,10 @@ fun LoginScreen(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Spacer(Modifier.height(24.dp))
+                Spacer(Modifier.height(16.dp))
+
+                AuthUsageLimitsNotice()
+                Spacer(Modifier.height(20.dp))
 
                 OutlinedTextField(
                     value = email,

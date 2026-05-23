@@ -11,7 +11,10 @@ import com.aplicator.jobapplier.data.remote.ai.ParsedExperience
 import com.aplicator.jobapplier.data.remote.ai.ParsedLanguage
 import com.aplicator.jobapplier.data.remote.ai.ParsedResumeResponse
 import com.aplicator.jobapplier.data.remote.ai.ParsedSkill
+import com.aplicator.jobapplier.data.remote.ai.QuotaExceededException
+import com.aplicator.jobapplier.data.remote.ai.QuotaExceededResponse
 import com.aplicator.jobapplier.data.repository.ProfileRepository
+import com.aplicator.jobapplier.data.repository.QuotaRepository
 import com.aplicator.jobapplier.data.repository.ResumeImportRepository
 import com.aplicator.jobapplier.domain.model.Certification
 import com.aplicator.jobapplier.domain.model.Education
@@ -67,12 +70,28 @@ class ResumeImportViewModel @Inject constructor(
     private val savedStateHandle: SavedStateHandle,
     private val resumeImportRepository: ResumeImportRepository,
     private val profileRepository: ProfileRepository,
+    private val quotaRepository: QuotaRepository,
     private val supabaseClient: SupabaseClient,
     private val profileRefreshTrigger: ProfileRefreshTrigger,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow<ResumeImportState>(ResumeImportState.Idle)
     val state: StateFlow<ResumeImportState> = _state.asStateFlow()
+
+    private val _quotaExceeded = MutableStateFlow<QuotaExceededResponse?>(null)
+    val quotaExceeded: StateFlow<QuotaExceededResponse?> = _quotaExceeded.asStateFlow()
+
+    private val _quotaRequestPending = MutableStateFlow(false)
+    val quotaRequestPending: StateFlow<Boolean> = _quotaRequestPending.asStateFlow()
+
+    private val _quotaRequestSuccess = MutableStateFlow(false)
+    val quotaRequestSuccess: StateFlow<Boolean> = _quotaRequestSuccess.asStateFlow()
+
+    private val _quotaRequestSuccessType = MutableStateFlow("resume")
+    val quotaRequestSuccessType: StateFlow<String> = _quotaRequestSuccessType.asStateFlow()
+
+    private val _showResumeParseWarning = MutableStateFlow(false)
+    val showResumeParseWarning: StateFlow<Boolean> = _showResumeParseWarning.asStateFlow()
 
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -124,15 +143,25 @@ class ResumeImportViewModel @Inject constructor(
 
             val parseResult = resumeImportRepository.parseResume(text)
             if (parseResult.isFailure) {
-                Log.e("ResumeImport", "Parse failed", parseResult.exceptionOrNull())
-                _state.value = ResumeImportState.Error(
-                    parseResult.exceptionOrNull()?.message ?: "Failed to parse resume",
-                )
+                val error = parseResult.exceptionOrNull()
+                Log.e("ResumeImport", "Parse failed", error)
+                if (error is QuotaExceededException) {
+                    _quotaExceeded.value = error.quotaInfo
+                    checkPendingRequest("resume")
+                    _state.value = ResumeImportState.Idle
+                } else {
+                    _state.value = ResumeImportState.Error(
+                        error?.message ?: "Failed to parse resume",
+                    )
+                }
                 return@launch
             }
 
             val response = parseResult.getOrThrow()
             Log.d("ResumeImport", "Parse success: ${response.skills.size} skills, ${response.experiences.size} experiences")
+            if (response.quotaWarning == "last_resume_parse") {
+                _showResumeParseWarning.value = true
+            }
             savedStateHandle[PARSED_RESPONSE_KEY] = json.encodeToString(ParsedResumeResponse.serializer(), response)
             _state.value = ResumeImportState.Preview(
                 ResumePreviewData(
@@ -347,6 +376,39 @@ class ResumeImportViewModel @Inject constructor(
                 "${parts[2]}-${parts[0]}-${parts[1]}"
             }
             else -> null
+        }
+    }
+
+    fun dismissResumeParseWarning() {
+        _showResumeParseWarning.value = false
+    }
+
+    fun dismissQuotaDialog() {
+        _quotaExceeded.value = null
+    }
+
+    fun dismissQuotaRequestSuccess() {
+        _quotaRequestSuccess.value = false
+    }
+
+    fun requestExtraQuota() {
+        val quota = _quotaExceeded.value ?: return
+        val uid = supabaseClient.auth.currentUserOrNull()?.id ?: return
+        viewModelScope.launch {
+            quotaRepository.requestExtraQuota(uid, quota.quotaType)
+                .onSuccess {
+                    _quotaRequestSuccessType.value = quota.quotaType
+                    _quotaRequestSuccess.value = true
+                    _quotaExceeded.value = null
+                    _quotaRequestPending.value = true
+                }
+        }
+    }
+
+    private fun checkPendingRequest(type: String) {
+        val uid = supabaseClient.auth.currentUserOrNull()?.id ?: return
+        viewModelScope.launch {
+            _quotaRequestPending.value = quotaRepository.hasPendingRequest(uid, type).getOrDefault(false)
         }
     }
 

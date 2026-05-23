@@ -48,6 +48,8 @@ import com.aplicator.jobapplier.data.remote.ai.AiSuggestionsResponse
 import com.aplicator.jobapplier.ui.components.CopyCard
 import com.aplicator.jobapplier.ui.components.EmptyState
 import com.aplicator.jobapplier.ui.components.PremiumLoadingIndicator
+import com.aplicator.jobapplier.ui.components.QuotaExceededDialog
+import com.aplicator.jobapplier.ui.components.QuotaRequestSuccessDialog
 import com.aplicator.jobapplier.ui.components.SaasCard
 import com.aplicator.jobapplier.ui.components.SaasScreenBackground
 import com.aplicator.jobapplier.ui.theme.AccentAmber
@@ -59,7 +61,27 @@ import kotlinx.coroutines.launch
 @Composable
 fun AiSuggestionsScreen(viewModel: AiSuggestionsViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsState()
+    val quotaExceeded by viewModel.quotaExceeded.collectAsState()
+    val quotaRequestPending by viewModel.quotaRequestPending.collectAsState()
+    val quotaRequestSuccess by viewModel.quotaRequestSuccess.collectAsState()
+    val quotaRequestSuccessType by viewModel.quotaRequestSuccessType.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
+
+    quotaExceeded?.let { quota ->
+        QuotaExceededDialog(
+            quotaInfo = quota,
+            onRequestExtra = { viewModel.requestExtraQuota() },
+            onDismiss = { viewModel.dismissQuotaDialog() },
+            requestPending = quotaRequestPending,
+        )
+    }
+
+    if (quotaRequestSuccess) {
+        QuotaRequestSuccessDialog(
+            quotaType = quotaRequestSuccessType,
+            onDismiss = { viewModel.dismissQuotaRequestSuccess() },
+        )
+    }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },

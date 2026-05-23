@@ -54,6 +54,9 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.aplicator.jobapplier.ui.components.PremiumButton
 import com.aplicator.jobapplier.ui.components.PremiumLoadingIndicator
+import com.aplicator.jobapplier.ui.components.QuotaExceededDialog
+import com.aplicator.jobapplier.ui.components.QuotaRequestSuccessDialog
+import com.aplicator.jobapplier.ui.components.ResumeParseWarningDialog
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -62,7 +65,34 @@ fun ResumeImportScreen(
     viewModel: ResumeImportViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
+    val quotaExceeded by viewModel.quotaExceeded.collectAsState()
+    val quotaRequestPending by viewModel.quotaRequestPending.collectAsState()
+    val quotaRequestSuccess by viewModel.quotaRequestSuccess.collectAsState()
+    val quotaRequestSuccessType by viewModel.quotaRequestSuccessType.collectAsState()
+    val showResumeParseWarning by viewModel.showResumeParseWarning.collectAsState()
     val context = LocalContext.current
+
+    quotaExceeded?.let { quota ->
+        QuotaExceededDialog(
+            quotaInfo = quota,
+            onRequestExtra = { viewModel.requestExtraQuota() },
+            onDismiss = { viewModel.dismissQuotaDialog() },
+            requestPending = quotaRequestPending,
+        )
+    }
+
+    if (quotaRequestSuccess) {
+        QuotaRequestSuccessDialog(
+            quotaType = quotaRequestSuccessType,
+            onDismiss = { viewModel.dismissQuotaRequestSuccess() },
+        )
+    }
+
+    if (showResumeParseWarning) {
+        ResumeParseWarningDialog(
+            onDismiss = { viewModel.dismissResumeParseWarning() },
+        )
+    }
 
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),

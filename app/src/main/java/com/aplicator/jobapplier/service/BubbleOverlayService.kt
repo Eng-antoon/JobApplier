@@ -616,11 +616,11 @@ class BubbleOverlayService : LifecycleService(), SavedStateRegistryOwner {
                             refreshBubbleContent(bubbleJob.jobId)
                             Toast.makeText(this@BubbleOverlayService, "Generated: ${action.label}", Toast.LENGTH_SHORT).show()
                         }
-                        .onFailure {
+                        .onFailure { error ->
                             Toast.makeText(
                                 this@BubbleOverlayService,
-                                it.message ?: "Could not generate content",
-                                Toast.LENGTH_SHORT,
+                                quotaAwareMessage(error as Exception),
+                                Toast.LENGTH_LONG,
                             ).show()
                         }
                 }
@@ -629,8 +629,8 @@ class BubbleOverlayService : LifecycleService(), SavedStateRegistryOwner {
             } catch (exception: Exception) {
                 Toast.makeText(
                     this@BubbleOverlayService,
-                    exception.message ?: "Could not generate content",
-                    Toast.LENGTH_SHORT,
+                    quotaAwareMessage(exception),
+                    Toast.LENGTH_LONG,
                 ).show()
             } finally {
                 generatingActionKey.value = null
@@ -651,6 +651,15 @@ class BubbleOverlayService : LifecycleService(), SavedStateRegistryOwner {
             certifications = profileRepository.getCertifications(uid).getOrDefault(emptyList()),
             languages = profileRepository.getLanguages(uid).getOrDefault(emptyList()),
         )
+    }
+
+    private fun quotaAwareMessage(exception: Exception): String {
+        return if (exception is com.aplicator.jobapplier.data.remote.ai.QuotaExceededException) {
+            if (exception.quotaInfo.quotaType == "resume") "Resume parse limit reached. Open the app to request extra quota."
+            else "Weekly AI limit reached. Open the app to request extra quota."
+        } else {
+            exception.message ?: "Could not generate content"
+        }
     }
 
     private suspend fun refreshBubbleContent(jobId: String) {

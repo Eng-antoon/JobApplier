@@ -4,6 +4,7 @@ import com.aplicator.jobapplier.domain.model.JobDescription
 import com.aplicator.jobapplier.domain.model.Profile
 import com.aplicator.jobapplier.domain.model.Skill
 import com.aplicator.jobapplier.domain.model.WorkExperience
+import com.aplicator.jobapplier.data.remote.ai.UserQuotaRow
 import com.aplicator.jobapplier.ui.profile.ProfileUiState
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -86,6 +87,32 @@ class SaasUiModelsTest {
             "Write a concise professional headline tailored to this job application.",
             defaultAiFillActions().first { it.contentType == "headline" }.question,
         )
+    }
+
+    @Test
+    fun quotaUsageSummary_showsWeeklyAndResumeExtrasSeparately() {
+        val quota = UserQuotaRow(
+            userId = "user-1",
+            weeklyAiLimit = 15,
+            weeklyUsageCount = 15,
+            extraQuotaRemaining = 7,
+            resumeParseLimit = 2,
+            resumeParseCount = 2,
+            extraResumeParseRemaining = 1,
+        )
+
+        val summary = buildQuotaUsageSummary(quota)
+
+        assertEquals("15 / 15 weekly AI actions used", summary.weeklyUsage)
+        assertEquals("7 extra weekly actions available", summary.weeklyExtra)
+        assertEquals("2 / 2 resume parses used", summary.resumeUsage)
+        assertEquals("1 extra resume parse available", summary.resumeExtra)
+    }
+
+    @Test
+    fun quotaRequestLabels_areSpecificToRequestType() {
+        assertEquals("Request 10 Weekly AI Actions", quotaRequestActionLabel("weekly"))
+        assertEquals("Request 2 Resume Parses", quotaRequestActionLabel("resume"))
     }
 
     private fun job(

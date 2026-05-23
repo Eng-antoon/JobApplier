@@ -17,6 +17,7 @@ data class ParsedResumeResponse(
     val education: List<ParsedEducation> = emptyList(),
     val certifications: List<ParsedCertification> = emptyList(),
     val languages: List<ParsedLanguage> = emptyList(),
+    @SerialName("quota_warning") val quotaWarning: String? = null,
 )
 
 @Serializable

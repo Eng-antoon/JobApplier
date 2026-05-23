@@ -1,5 +1,6 @@
 package com.aplicator.jobapplier.ui.components
 
+import com.aplicator.jobapplier.data.remote.ai.UserQuotaRow
 import com.aplicator.jobapplier.domain.model.JobDescription
 import com.aplicator.jobapplier.ui.profile.ProfileUiState
 import kotlin.math.roundToInt
@@ -21,6 +22,13 @@ data class AiFillAction(
     val contentType: String,
     val label: String,
     val question: String? = null,
+)
+
+data class QuotaUsageSummary(
+    val weeklyUsage: String,
+    val weeklyExtra: String?,
+    val resumeUsage: String,
+    val resumeExtra: String?,
 )
 
 const val DefaultUseDarkTheme: Boolean = false
@@ -104,3 +112,24 @@ fun defaultAiFillActions(): List<AiFillAction> = listOf(
     AiFillAction("strengths", "Strengths", "What are your strengths?"),
     AiFillAction("motivation", "Tell me about yourself", "Tell me about yourself"),
 )
+
+fun buildQuotaUsageSummary(quota: UserQuotaRow): QuotaUsageSummary = QuotaUsageSummary(
+    weeklyUsage = "${quota.weeklyUsageCount} / ${quota.weeklyAiLimit} weekly AI actions used",
+    weeklyExtra = quota.extraQuotaRemaining.takeIf { it > 0 }?.let {
+        "$it extra weekly ${if (it == 1) "action" else "actions"} available"
+    },
+    resumeUsage = "${quota.resumeParseCount} / ${quota.resumeParseLimit} resume parses used",
+    resumeExtra = quota.extraResumeParseRemaining.takeIf { it > 0 }?.let {
+        "$it extra resume ${if (it == 1) "parse" else "parses"} available"
+    },
+)
+
+fun quotaRequestActionLabel(quotaType: String): String = when (quotaType) {
+    "resume" -> "Request 2 Resume Parses"
+    else -> "Request 10 Weekly AI Actions"
+}
+
+fun quotaRequestSuccessMessage(quotaType: String): String = when (quotaType) {
+    "resume" -> "Your request for 2 extra resume parses was sent to the app owner. Once approved, close this message and retry the resume import."
+    else -> "Your request for 10 extra weekly AI actions was sent to the app owner. Once approved, close this message and retry the AI action."
+}

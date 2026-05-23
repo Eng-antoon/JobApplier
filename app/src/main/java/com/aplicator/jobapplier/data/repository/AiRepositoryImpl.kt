@@ -6,10 +6,14 @@ import com.aplicator.jobapplier.data.remote.ai.AnalyzeJdResponse
 import com.aplicator.jobapplier.data.remote.ai.DetectNewDataResponse
 import com.aplicator.jobapplier.data.remote.ai.FetchJobUrlResponse
 import com.aplicator.jobapplier.data.remote.ai.GenerateContentResponse
+import com.aplicator.jobapplier.data.remote.ai.QuotaExceededException
+import com.aplicator.jobapplier.data.remote.ai.QuotaExceededResponse
 import io.github.jan.supabase.SupabaseClient
+import io.github.jan.supabase.exceptions.RestException
 import io.github.jan.supabase.functions.functions
 import io.github.jan.supabase.postgrest.postgrest
 import io.ktor.client.call.body
+import io.ktor.client.statement.HttpResponse
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -38,7 +42,27 @@ class AiRepositoryImpl @Inject constructor(
             payload.forEach { (key, value) -> value?.let { put(key, it) } }
         }
         val request = AiProxyRequest(action = action, payload = payloadJson)
-        val response = supabaseClient.functions.invoke("ai-proxy", body = request)
+        val response: HttpResponse = try {
+            supabaseClient.functions.invoke("ai-proxy", body = request)
+        } catch (e: RestException) {
+            if (e.statusCode == 429) {
+                val quotaError = try {
+                    json.decodeFromString<QuotaExceededResponse>(e.error)
+                } catch (_: Exception) {
+                    QuotaExceededResponse(
+                        error = "quota_exceeded",
+                        quotaType = "weekly",
+                        used = 0,
+                        limit = 0,
+                        extraRemaining = 0,
+                        resetsAt = null,
+                        canRequestExtra = true,
+                    )
+                }
+                throw QuotaExceededException(quotaError)
+            }
+            throw e
+        }
         return response.body<String>()
     }
 

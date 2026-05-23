@@ -3,9 +3,12 @@ package com.aplicator.jobapplier.ui.suggestions
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.aplicator.jobapplier.data.remote.ai.AiSuggestionsResponse
+import com.aplicator.jobapplier.data.remote.ai.QuotaExceededException
+import com.aplicator.jobapplier.data.remote.ai.QuotaExceededResponse
 import com.aplicator.jobapplier.data.repository.AiRepository
 import com.aplicator.jobapplier.data.repository.JobRepository
 import com.aplicator.jobapplier.data.repository.ProfileRepository
+import com.aplicator.jobapplier.data.repository.QuotaRepository
 import com.aplicator.jobapplier.domain.model.UserProfileSnapshot
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.github.jan.supabase.SupabaseClient
@@ -28,11 +31,24 @@ class AiSuggestionsViewModel @Inject constructor(
     private val aiRepository: AiRepository,
     private val profileRepository: ProfileRepository,
     private val jobRepository: JobRepository,
+    private val quotaRepository: QuotaRepository,
     private val supabaseClient: SupabaseClient,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow<SuggestionsState>(SuggestionsState.Loading)
     val state: StateFlow<SuggestionsState> = _state.asStateFlow()
+
+    private val _quotaExceeded = MutableStateFlow<QuotaExceededResponse?>(null)
+    val quotaExceeded: StateFlow<QuotaExceededResponse?> = _quotaExceeded.asStateFlow()
+
+    private val _quotaRequestPending = MutableStateFlow(false)
+    val quotaRequestPending: StateFlow<Boolean> = _quotaRequestPending.asStateFlow()
+
+    private val _quotaRequestSuccess = MutableStateFlow(false)
+    val quotaRequestSuccess: StateFlow<Boolean> = _quotaRequestSuccess.asStateFlow()
+
+    private val _quotaRequestSuccessType = MutableStateFlow("weekly")
+    val quotaRequestSuccessType: StateFlow<String> = _quotaRequestSuccessType.asStateFlow()
 
     init {
         loadCached()
@@ -114,8 +130,45 @@ class AiSuggestionsViewModel @Inject constructor(
                     aiRepository.saveSuggestions(userId, suggestions)
                     SuggestionsState.Success(suggestions)
                 },
-                onFailure = { SuggestionsState.Error(it.message ?: "Failed to generate suggestions") },
+                onFailure = { error ->
+                    if (error is QuotaExceededException) {
+                        _quotaExceeded.value = error.quotaInfo
+                        checkPendingRequest(error.quotaInfo.quotaType)
+                        SuggestionsState.Empty
+                    } else {
+                        SuggestionsState.Error(error.message ?: "Failed to generate suggestions")
+                    }
+                },
             )
+        }
+    }
+
+    fun dismissQuotaDialog() {
+        _quotaExceeded.value = null
+    }
+
+    fun dismissQuotaRequestSuccess() {
+        _quotaRequestSuccess.value = false
+    }
+
+    fun requestExtraQuota() {
+        val quota = _quotaExceeded.value ?: return
+        val uid = supabaseClient.auth.currentUserOrNull()?.id ?: return
+        viewModelScope.launch {
+            quotaRepository.requestExtraQuota(uid, quota.quotaType)
+                .onSuccess {
+                    _quotaRequestSuccessType.value = quota.quotaType
+                    _quotaRequestSuccess.value = true
+                    _quotaExceeded.value = null
+                    _quotaRequestPending.value = true
+                }
+        }
+    }
+
+    private fun checkPendingRequest(type: String) {
+        val uid = supabaseClient.auth.currentUserOrNull()?.id ?: return
+        viewModelScope.launch {
+            _quotaRequestPending.value = quotaRepository.hasPendingRequest(uid, type).getOrDefault(false)
         }
     }
 }

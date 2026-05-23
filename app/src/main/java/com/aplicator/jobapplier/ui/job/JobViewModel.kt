@@ -5,10 +5,14 @@ import androidx.lifecycle.viewModelScope
 import com.aplicator.jobapplier.data.event.SharedJobTextHolder
 import com.aplicator.jobapplier.ui.webextract.WebExtractResult
 import com.aplicator.jobapplier.data.remote.ai.AnalyzeJdResponse
+import com.aplicator.jobapplier.data.remote.ai.QuotaExceededException
+import com.aplicator.jobapplier.data.remote.ai.QuotaExceededResponse
+import com.aplicator.jobapplier.data.remote.ai.UserQuotaRow
 import com.aplicator.jobapplier.data.repository.AiRepository
 import com.aplicator.jobapplier.data.repository.AuthRepository
 import com.aplicator.jobapplier.data.repository.JobRepository
 import com.aplicator.jobapplier.data.repository.ProfileRepository
+import com.aplicator.jobapplier.data.repository.QuotaRepository
 import com.aplicator.jobapplier.domain.model.GeneratedContent
 import com.aplicator.jobapplier.domain.model.JobDescription
 import com.aplicator.jobapplier.domain.model.MatchResult
@@ -63,6 +67,7 @@ class JobViewModel @Inject constructor(
     private val profileRepository: ProfileRepository,
     private val jobRepository: JobRepository,
     private val aiRepository: AiRepository,
+    private val quotaRepository: QuotaRepository,
     private val sharedJobTextHolder: SharedJobTextHolder,
     private val bubbleDataProvider: BubbleDataProvider,
 ) : ViewModel() {
@@ -82,6 +87,21 @@ class JobViewModel @Inject constructor(
     private val _fetchUrlState = MutableStateFlow<FetchUrlState>(FetchUrlState.Idle)
     val fetchUrlState: StateFlow<FetchUrlState> = _fetchUrlState.asStateFlow()
 
+    private val _quotaExceeded = MutableStateFlow<QuotaExceededResponse?>(null)
+    val quotaExceeded: StateFlow<QuotaExceededResponse?> = _quotaExceeded.asStateFlow()
+
+    private val _quotaRequestPending = MutableStateFlow(false)
+    val quotaRequestPending: StateFlow<Boolean> = _quotaRequestPending.asStateFlow()
+
+    private val _quotaRequestSuccess = MutableStateFlow(false)
+    val quotaRequestSuccess: StateFlow<Boolean> = _quotaRequestSuccess.asStateFlow()
+
+    private val _quotaRequestSuccessType = MutableStateFlow("weekly")
+    val quotaRequestSuccessType: StateFlow<String> = _quotaRequestSuccessType.asStateFlow()
+
+    private val _quotaStatus = MutableStateFlow<UserQuotaRow?>(null)
+    val quotaStatus: StateFlow<UserQuotaRow?> = _quotaStatus.asStateFlow()
+
     private val _linkedInUrlToExtract = MutableStateFlow<String?>(null)
     val linkedInUrlToExtract: StateFlow<String?> = _linkedInUrlToExtract.asStateFlow()
 
@@ -94,6 +114,7 @@ class JobViewModel @Inject constructor(
 
     init {
         loadJobs()
+        loadQuotaStatus()
     }
 
     fun consumeSharedText(): String? = sharedJobTextHolder.consume()
@@ -169,9 +190,16 @@ class JobViewModel @Inject constructor(
                     jobRepository.updateJobAnalysis(jobId, response.matchScore, matchDetailsJson, requirementsJson)
                     _addJobState.value = AddJobState(analyzedJobId = jobId)
                     loadJobs()
+                    loadQuotaStatus()
                 }
-                .onFailure {
-                    _addJobState.value = AddJobState(error = it.message)
+                .onFailure { error ->
+                    if (error is QuotaExceededException) {
+                        _quotaExceeded.value = error.quotaInfo
+                        checkPendingRequest(error.quotaInfo.quotaType)
+                        _addJobState.value = AddJobState()
+                    } else {
+                        _addJobState.value = AddJobState(error = error.message)
+                    }
                 }
         }
     }
@@ -204,6 +232,7 @@ class JobViewModel @Inject constructor(
             result
                 .onSuccess { response ->
                     _generateState.value = GenerateState(generatedText = response.content)
+                    loadQuotaStatus()
                     jobRepository.insertGeneratedContent(
                         uid,
                         GeneratedContent(
@@ -215,8 +244,14 @@ class JobViewModel @Inject constructor(
                     )
                     loadJobDetail(jobId)
                 }
-                .onFailure {
-                    _generateState.value = GenerateState(error = it.message)
+                .onFailure { error ->
+                    if (error is QuotaExceededException) {
+                        _quotaExceeded.value = error.quotaInfo
+                        checkPendingRequest(error.quotaInfo.quotaType)
+                        _generateState.value = GenerateState()
+                    } else {
+                        _generateState.value = GenerateState(error = error.message)
+                    }
                 }
         }
     }
@@ -264,8 +299,14 @@ class JobViewModel @Inject constructor(
                         _fetchUrlState.value = FetchUrlState.Failed(reason = response.reason)
                     }
                 }
-                .onFailure {
-                    _fetchUrlState.value = FetchUrlState.Failed(reason = it.message)
+                .onFailure { error ->
+                    if (error is QuotaExceededException) {
+                        _quotaExceeded.value = error.quotaInfo
+                        checkPendingRequest(error.quotaInfo.quotaType)
+                        _fetchUrlState.value = FetchUrlState.Idle
+                    } else {
+                        _fetchUrlState.value = FetchUrlState.Failed(reason = error.message)
+                    }
                 }
         }
     }
@@ -338,5 +379,44 @@ class JobViewModel @Inject constructor(
             )
         }
         bubbleDataProvider.updateGeneratedContent(jobId, bubbleContent)
+    }
+
+    fun loadQuotaStatus() {
+        val uid = userId ?: return
+        viewModelScope.launch {
+            quotaRepository.getQuotaStatus(uid)
+                .onSuccess { _quotaStatus.value = it }
+        }
+    }
+
+    fun dismissQuotaDialog() {
+        _quotaExceeded.value = null
+    }
+
+    fun dismissQuotaRequestSuccess() {
+        _quotaRequestSuccess.value = false
+        loadQuotaStatus()
+    }
+
+    fun requestExtraQuota() {
+        val quota = _quotaExceeded.value ?: return
+        val uid = userId ?: return
+        viewModelScope.launch {
+            quotaRepository.requestExtraQuota(uid, quota.quotaType)
+                .onSuccess {
+                    _quotaRequestSuccessType.value = quota.quotaType
+                    _quotaRequestSuccess.value = true
+                    _quotaExceeded.value = null
+                    _quotaRequestPending.value = true
+                    loadQuotaStatus()
+                }
+        }
+    }
+
+    private fun checkPendingRequest(type: String) {
+        val uid = userId ?: return
+        viewModelScope.launch {
+            _quotaRequestPending.value = quotaRepository.hasPendingRequest(uid, type).getOrDefault(false)
+        }
     }
 }

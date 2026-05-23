@@ -62,6 +62,8 @@ import com.aplicator.jobapplier.ui.components.CompanyAvatar
 import com.aplicator.jobapplier.ui.components.CopyCard
 import com.aplicator.jobapplier.ui.components.MatchScoreRing
 import com.aplicator.jobapplier.ui.components.PremiumLoadingIndicator
+import com.aplicator.jobapplier.ui.components.QuotaExceededDialog
+import com.aplicator.jobapplier.ui.components.QuotaRequestSuccessDialog
 import com.aplicator.jobapplier.ui.components.SaasCard
 import com.aplicator.jobapplier.ui.components.SaasPrimaryButton
 import com.aplicator.jobapplier.ui.components.SaasScreenBackground
@@ -86,12 +88,32 @@ fun JobDetailScreen(
 ) {
     val detailState by viewModel.jobDetailState.collectAsState()
     val generateState by viewModel.generateState.collectAsState()
+    val quotaExceeded by viewModel.quotaExceeded.collectAsState()
+    val quotaRequestPending by viewModel.quotaRequestPending.collectAsState()
+    val quotaRequestSuccess by viewModel.quotaRequestSuccess.collectAsState()
+    val quotaRequestSuccessType by viewModel.quotaRequestSuccessType.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
     val view = LocalView.current
     val scope = rememberCoroutineScope()
     var customQuestion by rememberSaveable { mutableStateOf("") }
     var selectedTone by rememberSaveable { mutableStateOf("professional") }
+
+    quotaExceeded?.let { quota ->
+        QuotaExceededDialog(
+            quotaInfo = quota,
+            onRequestExtra = { viewModel.requestExtraQuota() },
+            onDismiss = { viewModel.dismissQuotaDialog() },
+            requestPending = quotaRequestPending,
+        )
+    }
+
+    if (quotaRequestSuccess) {
+        QuotaRequestSuccessDialog(
+            quotaType = quotaRequestSuccessType,
+            onDismiss = { viewModel.dismissQuotaRequestSuccess() },
+        )
+    }
 
     LaunchedEffect(jobId) { viewModel.loadJobDetail(jobId) }
     LaunchedEffect(generateState.error) {

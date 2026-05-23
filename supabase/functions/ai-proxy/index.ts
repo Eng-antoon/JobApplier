@@ -43,6 +43,17 @@ const MAX_TOKENS_MAP: Record<string, number> = {
   fetch_job_url: 4000,
 };
 
+const SUPPORTED_ACTIONS = new Set([
+  "analyze_jd",
+  "generate_cover_letter",
+  "generate_cover_email",
+  "answer_question",
+  "detect_new_data",
+  "parse_resume",
+  "generate_suggestions",
+  "fetch_job_url",
+]);
+
 async function callGemini(prompt: string, action: string): Promise<GeminiResponse> {
   const maxTokens = MAX_TOKENS_MAP[action] ?? 500;
 
@@ -240,6 +251,242 @@ function calculateCost(inputTokens: number, outputTokens: number): number {
   return (inputTokens * 0.10 + outputTokens * 0.40) / 1_000_000;
 }
 
+interface QuotaCheckResult {
+  allowed: boolean;
+  isLastResumeParse?: boolean;
+  quotaError?: {
+    error: string;
+    quota_type: "weekly" | "resume";
+    used: number;
+    limit: number;
+    extra_remaining: number;
+    weekly_extra_remaining: number;
+    resume_extra_remaining: number;
+    resets_at: string | null;
+    can_request_extra: boolean;
+  };
+}
+
+async function checkAndIncrementQuota(
+  serviceClient: ReturnType<typeof createClient>,
+  userId: string,
+  action: string,
+): Promise<QuotaCheckResult> {
+  // Get or create user_quotas row
+  let { data: quota } = await serviceClient
+    .from("user_quotas")
+    .select("*")
+    .eq("user_id", userId)
+    .single();
+
+  if (!quota) {
+    const { data: newQuota } = await serviceClient
+      .from("user_quotas")
+      .insert({ user_id: userId })
+      .select()
+      .single();
+    quota = newQuota;
+  }
+
+  if (!quota) {
+    return {
+      allowed: false,
+      quotaError: {
+        error: "quota_exceeded",
+        quota_type: "weekly",
+        used: 0,
+        limit: 0,
+        extra_remaining: 0,
+        weekly_extra_remaining: 0,
+        resume_extra_remaining: 0,
+        resets_at: null,
+        can_request_extra: true,
+      },
+    };
+  }
+
+  if (action === "parse_resume") {
+    const resumeExtraRemaining = quota.extra_resume_parse_remaining ?? 0;
+    if (quota.resume_parse_count >= quota.resume_parse_limit && resumeExtraRemaining <= 0) {
+      // Check if can request extra (no pending request)
+      const { data: pending } = await serviceClient
+        .from("quota_requests")
+        .select("id")
+        .eq("user_id", userId)
+        .eq("status", "pending")
+        .eq("request_type", "resume");
+      const canRequest = !pending || pending.length === 0;
+
+      return {
+        allowed: false,
+        quotaError: {
+          error: "quota_exceeded",
+          quota_type: "resume",
+          used: quota.resume_parse_count,
+          limit: quota.resume_parse_limit,
+          extra_remaining: resumeExtraRemaining,
+          weekly_extra_remaining: quota.extra_quota_remaining ?? 0,
+          resume_extra_remaining: resumeExtraRemaining,
+          resets_at: null,
+          can_request_extra: canRequest,
+        },
+      };
+    }
+
+    if (quota.resume_parse_count < quota.resume_parse_limit) {
+      // Atomic increment of included lifetime resume parses
+      const { data: updated } = await serviceClient
+        .from("user_quotas")
+        .update({ resume_parse_count: quota.resume_parse_count + 1, updated_at: new Date().toISOString() })
+        .eq("user_id", userId)
+        .eq("resume_parse_count", quota.resume_parse_count)
+        .select()
+        .single();
+
+      if (!updated) {
+        return {
+          allowed: false,
+          quotaError: {
+            error: "quota_exceeded",
+            quota_type: "resume",
+            used: quota.resume_parse_count,
+            limit: quota.resume_parse_limit,
+            extra_remaining: resumeExtraRemaining,
+            weekly_extra_remaining: quota.extra_quota_remaining ?? 0,
+            resume_extra_remaining: resumeExtraRemaining,
+            resets_at: null,
+            can_request_extra: true,
+          },
+        };
+      }
+
+      const isLast = updated.resume_parse_count >= updated.resume_parse_limit;
+      return { allowed: true, isLastResumeParse: isLast };
+    }
+
+    // Consume approved resume extras after included parses are exhausted.
+    const { data: updatedExtra } = await serviceClient
+      .from("user_quotas")
+      .update({
+        extra_resume_parse_remaining: resumeExtraRemaining - 1,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("user_id", userId)
+      .eq("extra_resume_parse_remaining", resumeExtraRemaining)
+      .select()
+      .single();
+
+    if (!updatedExtra) {
+      return {
+        allowed: false,
+        quotaError: {
+          error: "quota_exceeded",
+          quota_type: "resume",
+          used: quota.resume_parse_count,
+          limit: quota.resume_parse_limit,
+          extra_remaining: 0,
+          weekly_extra_remaining: quota.extra_quota_remaining ?? 0,
+          resume_extra_remaining: 0,
+          resets_at: null,
+          can_request_extra: true,
+        },
+      };
+    }
+
+    return { allowed: true };
+  }
+
+  const weeklyExtraRemaining = quota.extra_quota_remaining ?? 0;
+  // Regular actions: consume included weekly quota first, then approved weekly extras.
+  if (quota.weekly_usage_count >= quota.weekly_ai_limit && weeklyExtraRemaining <= 0) {
+    const { data: pending } = await serviceClient
+      .from("quota_requests")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("status", "pending")
+      .eq("request_type", "weekly");
+    const canRequest = !pending || pending.length === 0;
+
+    // Calculate next Monday reset
+    const now = new Date();
+    const daysUntilMonday = (8 - now.getUTCDay()) % 7 || 7;
+    const nextMonday = new Date(now);
+    nextMonday.setUTCDate(now.getUTCDate() + daysUntilMonday);
+    nextMonday.setUTCHours(0, 0, 0, 0);
+
+    return {
+      allowed: false,
+      quotaError: {
+        error: "quota_exceeded",
+        quota_type: "weekly",
+        used: quota.weekly_usage_count,
+        limit: quota.weekly_ai_limit,
+        extra_remaining: weeklyExtraRemaining,
+        weekly_extra_remaining: weeklyExtraRemaining,
+        resume_extra_remaining: quota.extra_resume_parse_remaining ?? 0,
+        resets_at: nextMonday.toISOString(),
+        can_request_extra: canRequest,
+      },
+    };
+  }
+
+  // Consume: first from weekly limit, then from extra
+  if (quota.weekly_usage_count < quota.weekly_ai_limit) {
+    const { data: updated } = await serviceClient
+      .from("user_quotas")
+      .update({ weekly_usage_count: quota.weekly_usage_count + 1, updated_at: new Date().toISOString() })
+      .eq("user_id", userId)
+      .eq("weekly_usage_count", quota.weekly_usage_count)
+      .select()
+      .single();
+
+    if (!updated) {
+      return {
+        allowed: false,
+        quotaError: {
+          error: "quota_exceeded",
+          quota_type: "weekly",
+          used: quota.weekly_usage_count,
+          limit: quota.weekly_ai_limit,
+          extra_remaining: weeklyExtraRemaining,
+          weekly_extra_remaining: weeklyExtraRemaining,
+          resume_extra_remaining: quota.extra_resume_parse_remaining ?? 0,
+          resets_at: null,
+          can_request_extra: true,
+        },
+      };
+    }
+  } else {
+    // Consuming from extra quota
+    const { data: updated } = await serviceClient
+      .from("user_quotas")
+      .update({ extra_quota_remaining: weeklyExtraRemaining - 1, updated_at: new Date().toISOString() })
+      .eq("user_id", userId)
+      .eq("extra_quota_remaining", weeklyExtraRemaining)
+      .select()
+      .single();
+
+    if (!updated) {
+      return {
+        allowed: false,
+        quotaError: {
+          error: "quota_exceeded",
+          quota_type: "weekly",
+          used: quota.weekly_usage_count,
+          limit: quota.weekly_ai_limit,
+          extra_remaining: 0,
+          weekly_extra_remaining: 0,
+          resume_extra_remaining: quota.extra_resume_parse_remaining ?? 0,
+          resets_at: null,
+          can_request_extra: true,
+        },
+      };
+    }
+  }
+
+  return { allowed: true };
+}
+
 function cleanJsonResponse(text: string): string {
   let cleaned = text.trim();
   if (cleaned.startsWith("```json")) {
@@ -414,8 +661,38 @@ Deno.serve(async (req: Request) => {
     const body: ActionRequest = await req.json();
     const { action, payload } = body;
 
+    if (!SUPPORTED_ACTIONS.has(action)) {
+      return new Response(JSON.stringify({ error: `Unknown action: ${action}` }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const serviceClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+
+    // Quota check for all AI actions
+    const quotaResult = await checkAndIncrementQuota(serviceClient, user.id, action);
+    if (!quotaResult.allowed) {
+      return new Response(JSON.stringify(quotaResult.quotaError), {
+        status: 429,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     if (action === "fetch_job_url") {
       const result = await handleFetchJobUrl(payload);
+
+      // Log usage for fetch_job_url too
+      const fetchTokenEstimate = 500;
+      await serviceClient.from("ai_usage_log").insert({
+        user_id: user.id,
+        function_name: action,
+        model: "gemini-2.0-flash",
+        input_tokens: fetchTokenEstimate,
+        output_tokens: fetchTokenEstimate,
+        cost_estimate_usd: calculateCost(fetchTokenEstimate, fetchTokenEstimate),
+      });
+
       return new Response(JSON.stringify(result), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -424,7 +701,6 @@ Deno.serve(async (req: Request) => {
     const prompt = buildPrompt(action, payload);
     const geminiResult = await callGemini(prompt, action);
 
-    const serviceClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
     await serviceClient.from("ai_usage_log").insert({
       user_id: user.id,
       function_name: action,
@@ -471,6 +747,11 @@ Deno.serve(async (req: Request) => {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
+    }
+
+    // Add quota warning for last resume parse
+    if (action === "parse_resume" && quotaResult.isLastResumeParse) {
+      responseData["quota_warning"] = "last_resume_parse";
     }
 
     return new Response(JSON.stringify(responseData), {

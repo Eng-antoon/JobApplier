@@ -8,6 +8,8 @@ import com.aplicator.jobapplier.data.repository.JobRepository
 import com.aplicator.jobapplier.data.repository.JobRepositoryImpl
 import com.aplicator.jobapplier.data.repository.ProfileRepository
 import com.aplicator.jobapplier.data.repository.ProfileRepositoryImpl
+import com.aplicator.jobapplier.data.repository.QuotaRepository
+import com.aplicator.jobapplier.data.repository.QuotaRepositoryImpl
 import com.aplicator.jobapplier.data.repository.ResumeImportRepository
 import com.aplicator.jobapplier.data.repository.ResumeImportRepositoryImpl
 import dagger.Binds
@@ -39,4 +41,8 @@ abstract class RepositoryModule {
     @Binds
     @Singleton
     abstract fun bindResumeImportRepository(impl: ResumeImportRepositoryImpl): ResumeImportRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindQuotaRepository(impl: QuotaRepositoryImpl): QuotaRepository
 }

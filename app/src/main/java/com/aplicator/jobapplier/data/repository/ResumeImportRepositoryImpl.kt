@@ -5,11 +5,15 @@ import android.net.Uri
 import com.aplicator.jobapplier.data.remote.ai.AiProxyRequest
 import com.aplicator.jobapplier.data.remote.ai.ParsedResumeResponse
 import com.aplicator.jobapplier.data.remote.ai.ParsedSkill
+import com.aplicator.jobapplier.data.remote.ai.QuotaExceededException
+import com.aplicator.jobapplier.data.remote.ai.QuotaExceededResponse
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.text.PDFTextStripper
 import io.github.jan.supabase.SupabaseClient
+import io.github.jan.supabase.exceptions.RestException
 import io.github.jan.supabase.functions.functions
 import io.ktor.client.call.body
+import io.ktor.client.statement.HttpResponse
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -64,8 +68,29 @@ class ResumeImportRepositoryImpl @Inject constructor(
                 put("resume_text", truncatedText)
             }
             val request = AiProxyRequest(action = "parse_resume", payload = payloadJson)
-            val response = supabaseClient.functions.invoke("ai-proxy", body = request)
+            val response: HttpResponse = try {
+                supabaseClient.functions.invoke("ai-proxy", body = request)
+            } catch (e: RestException) {
+                if (e.statusCode == 429) {
+                    val quotaError = try {
+                        json.decodeFromString<QuotaExceededResponse>(e.error)
+                    } catch (_: Exception) {
+                        QuotaExceededResponse(
+                            error = "quota_exceeded",
+                            quotaType = "resume",
+                            used = 0,
+                            limit = 2,
+                            extraRemaining = 0,
+                            resetsAt = null,
+                            canRequestExtra = true,
+                        )
+                    }
+                    throw QuotaExceededException(quotaError)
+                }
+                throw e
+            }
             val responseText = response.body<String>()
+
             if (responseText.contains("\"error\"") && !responseText.contains("\"skills\"")) {
                 val errorMsg = try {
                     json.decodeFromString<Map<String, String>>(responseText)["error"]

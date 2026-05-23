@@ -30,6 +30,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -63,6 +64,7 @@ import com.aplicator.jobapplier.ui.components.SelectableSaasChip
 import com.aplicator.jobapplier.ui.components.ShimmerJobCard
 import com.aplicator.jobapplier.ui.components.StatusPill
 import com.aplicator.jobapplier.ui.components.buildDashboardMetrics
+import com.aplicator.jobapplier.ui.components.buildQuotaUsageSummary
 import com.aplicator.jobapplier.ui.components.filterJobs
 import com.aplicator.jobapplier.ui.job.JobViewModel
 import com.aplicator.jobapplier.ui.theme.AccentCyan
@@ -77,10 +79,15 @@ fun DashboardScreen(
     onJobClick: (String) -> Unit,
 ) {
     val state by viewModel.jobListState.collectAsState()
+    val quotaStatus by viewModel.quotaStatus.collectAsState()
     val context = LocalContext.current
     var showPermissionDialog by remember { mutableStateOf(false) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var statusFilter by rememberSaveable { mutableStateOf("All") }
+
+    LaunchedEffect(Unit) {
+        viewModel.loadQuotaStatus()
+    }
 
     if (showPermissionDialog) {
         OverlayPermissionDialog(
@@ -186,6 +193,70 @@ fun DashboardScreen(
                             accent = AccentCyan,
                             modifier = Modifier.weight(1f),
                         )
+                    }
+                }
+                quotaStatus?.let { quota ->
+                    item {
+                        val quotaSummary = buildQuotaUsageSummary(quota)
+                        SaasCard(modifier = Modifier.fillMaxWidth()) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    Icons.Default.AutoAwesome,
+                                    contentDescription = null,
+                                    tint = AccentCyan,
+                                    modifier = Modifier.size(20.dp),
+                                )
+                                Text(
+                                    "AI Usage",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    modifier = Modifier.padding(start = 8.dp),
+                                )
+                            }
+                            Spacer(Modifier.height(10.dp))
+                            val weeklyProgress = quota.weeklyUsageCount.toFloat() / quota.weeklyAiLimit.coerceAtLeast(1)
+                            LinearProgressIndicator(
+                                progress = { weeklyProgress.coerceIn(0f, 1f) },
+                                modifier = Modifier.fillMaxWidth(),
+                                color = if (weeklyProgress >= 0.8f) MaterialTheme.colorScheme.error else AccentCyan,
+                                trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                            )
+                            Spacer(Modifier.height(6.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                            ) {
+                                Text(
+                                    quotaSummary.weeklyUsage,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                quotaSummary.weeklyExtra?.let { weeklyExtra ->
+                                    Text(
+                                        weeklyExtra,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = AccentTeal,
+                                        fontWeight = FontWeight.Medium,
+                                    )
+                                }
+                            }
+                            if (quota.resumeParseCount > 0 || quota.resumeParseLimit > 0) {
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    quotaSummary.resumeUsage,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                quotaSummary.resumeExtra?.let { resumeExtra ->
+                                    Spacer(Modifier.height(2.dp))
+                                    Text(
+                                        resumeExtra,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = AccentTeal,
+                                        fontWeight = FontWeight.Medium,
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
                 item {

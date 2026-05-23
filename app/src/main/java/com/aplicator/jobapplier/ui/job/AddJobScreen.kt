@@ -45,6 +45,8 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.aplicator.jobapplier.ui.components.PremiumLoadingIndicator
+import com.aplicator.jobapplier.ui.components.QuotaExceededDialog
+import com.aplicator.jobapplier.ui.components.QuotaRequestSuccessDialog
 import com.aplicator.jobapplier.ui.components.SaasCard
 import com.aplicator.jobapplier.ui.components.SaasPrimaryButton
 import com.aplicator.jobapplier.ui.components.SaasScreenBackground
@@ -60,12 +62,32 @@ fun AddJobScreen(
     val addJobState by viewModel.addJobState.collectAsState()
     val fetchState by viewModel.fetchUrlState.collectAsState()
     val linkedInUrl by viewModel.linkedInUrlToExtract.collectAsState()
+    val quotaExceeded by viewModel.quotaExceeded.collectAsState()
+    val quotaRequestPending by viewModel.quotaRequestPending.collectAsState()
+    val quotaRequestSuccess by viewModel.quotaRequestSuccess.collectAsState()
+    val quotaRequestSuccessType by viewModel.quotaRequestSuccessType.collectAsState()
     var companyName by rememberSaveable { mutableStateOf("") }
     var roleTitle by rememberSaveable { mutableStateOf("") }
     var rawText by rememberSaveable { mutableStateOf("") }
     var sourceUrl by rememberSaveable { mutableStateOf("") }
     val snackbarHostState = remember { SnackbarHostState() }
     val clipboardManager = LocalClipboardManager.current
+
+    quotaExceeded?.let { quota ->
+        QuotaExceededDialog(
+            quotaInfo = quota,
+            onRequestExtra = { viewModel.requestExtraQuota() },
+            onDismiss = { viewModel.dismissQuotaDialog() },
+            requestPending = quotaRequestPending,
+        )
+    }
+
+    if (quotaRequestSuccess) {
+        QuotaRequestSuccessDialog(
+            quotaType = quotaRequestSuccessType,
+            onDismiss = { viewModel.dismissQuotaRequestSuccess() },
+        )
+    }
 
     val webExtractLauncher = rememberLauncherForActivityResult(
         contract = WebJobExtractorContract(),
