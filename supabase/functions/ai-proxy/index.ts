@@ -8,8 +8,9 @@ interface ActionRequest {
 
 type ActionResponse = Record<string, unknown>;
 
-interface GeminiResponse {
+export interface GeminiResponse {
   candidates?: Array<{
+    finishReason?: string;
     content?: {
       parts?: Array<{ text?: string }>;
     };
@@ -21,11 +22,70 @@ interface GeminiResponse {
   };
 }
 
+interface CombinedUsageMetadata {
+  promptTokenCount: number;
+  candidatesTokenCount: number;
+  cachedContentTokenCount: number;
+}
+
+export class StructuredResponseError extends Error {
+  readonly code = "ai_response_invalid";
+
+  constructor() {
+    super("The AI returned an invalid structured response");
+    this.name = "StructuredResponseError";
+  }
+}
+
+function cleanStructuredJson(text: string): string {
+  return text
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/, "")
+    .trim();
+}
+
+export async function generateStructuredJson<T extends Record<string, unknown>>(
+  callAttempt: (attempt: number) => Promise<GeminiResponse>,
+): Promise<{ data: T; usageMetadata: CombinedUsageMetadata }> {
+  const usageMetadata: CombinedUsageMetadata = {
+    promptTokenCount: 0,
+    candidatesTokenCount: 0,
+    cachedContentTokenCount: 0,
+  };
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const response = await callAttempt(attempt);
+    usageMetadata.promptTokenCount += response.usageMetadata?.promptTokenCount ?? 0;
+    usageMetadata.candidatesTokenCount += response.usageMetadata?.candidatesTokenCount ?? 0;
+    usageMetadata.cachedContentTokenCount += response.usageMetadata?.cachedContentTokenCount ?? 0;
+
+    const candidate = response.candidates?.[0];
+    const text = candidate?.content?.parts?.[0]?.text ?? "";
+    try {
+      if (!text || candidate?.finishReason === "MAX_TOKENS") {
+        throw new SyntaxError("Incomplete response");
+      }
+      return {
+        data: JSON.parse(cleanStructuredJson(text)) as T,
+        usageMetadata,
+      };
+    } catch (error) {
+      console.error(
+        `Structured AI response invalid: attempt=${attempt + 1}, finishReason=${candidate?.finishReason ?? "unknown"}, textLength=${text.length}, category=${error instanceof SyntaxError ? "parse" : "unknown"}`,
+      );
+    }
+  }
+
+  throw new StructuredResponseError();
+}
+
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
-const GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
+const GEMINI_MODEL = "gemini-2.5-flash";
+const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -54,18 +114,220 @@ const SUPPORTED_ACTIONS = new Set([
   "fetch_job_url",
 ]);
 
-async function callGemini(prompt: string, action: string): Promise<GeminiResponse> {
-  const maxTokens = MAX_TOKENS_MAP[action] ?? 500;
+const STRING_ARRAY_SCHEMA = {
+  type: "array",
+  items: { type: "string" },
+};
+
+const JSON_SCHEMAS: Record<string, unknown> = {
+  analyze_jd: {
+    type: "object",
+    properties: {
+      requirements: STRING_ARRAY_SCHEMA,
+      match_score: { type: "integer" },
+      matched: STRING_ARRAY_SCHEMA,
+      gaps: STRING_ARRAY_SCHEMA,
+      partial: STRING_ARRAY_SCHEMA,
+      suggestions: STRING_ARRAY_SCHEMA,
+    },
+    required: ["requirements", "match_score", "matched", "gaps", "partial", "suggestions"],
+  },
+  detect_new_data: {
+    type: "object",
+    properties: {
+      detected_skills: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            name: { type: "string" },
+            category: { type: "string" },
+            proficiency: { type: "string" },
+          },
+          required: ["name"],
+        },
+      },
+      detected_experiences: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            company: { type: "string" },
+            title: { type: "string" },
+            description: { type: "string" },
+          },
+        },
+      },
+      detected_certifications: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            name: { type: "string" },
+            issuing_org: { type: "string" },
+          },
+        },
+      },
+    },
+    required: ["detected_skills", "detected_experiences", "detected_certifications"],
+  },
+  parse_resume: {
+    type: "object",
+    properties: {
+      full_name: { type: "string" },
+      email: { type: "string" },
+      phone: { type: "string" },
+      location: { type: "string" },
+      linkedin_url: { type: "string" },
+      summary: { type: "string" },
+      desired_role: { type: "string" },
+      skills: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            name: { type: "string" },
+            category: { type: "string" },
+            proficiency: { type: "string" },
+            years_experience: { type: "integer" },
+          },
+          required: ["name"],
+        },
+      },
+      experiences: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            company: { type: "string" },
+            title: { type: "string" },
+            location: { type: "string" },
+            start_date: { type: "string" },
+            end_date: { type: "string" },
+            is_current: { type: "boolean" },
+            description: { type: "string" },
+            achievements: STRING_ARRAY_SCHEMA,
+            technologies_used: STRING_ARRAY_SCHEMA,
+          },
+          required: ["company", "title", "is_current", "achievements", "technologies_used"],
+        },
+      },
+      education: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            institution: { type: "string" },
+            degree: { type: "string" },
+            field_of_study: { type: "string" },
+            start_date: { type: "string" },
+            end_date: { type: "string" },
+            gpa: { type: "string" },
+            description: { type: "string" },
+          },
+          required: ["institution", "degree"],
+        },
+      },
+      certifications: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            name: { type: "string" },
+            issuing_org: { type: "string" },
+            issue_date: { type: "string" },
+            expiry_date: { type: "string" },
+            credential_url: { type: "string" },
+          },
+          required: ["name"],
+        },
+      },
+      languages: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            name: { type: "string" },
+            proficiency: { type: "string" },
+          },
+          required: ["name"],
+        },
+      },
+    },
+    required: ["skills", "experiences", "education", "certifications", "languages"],
+  },
+  generate_suggestions: {
+    type: "object",
+    properties: {
+      headline_suggestions: STRING_ARRAY_SCHEMA,
+      summary_rewrites: STRING_ARRAY_SCHEMA,
+      skill_gaps: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            skill: { type: "string" },
+            reason: { type: "string" },
+            priority: { type: "string" },
+          },
+          required: ["skill", "reason", "priority"],
+        },
+      },
+      cover_email_templates: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            job_id: { type: "string" },
+            template: { type: "string" },
+          },
+          required: ["job_id", "template"],
+        },
+      },
+      general_tips: STRING_ARRAY_SCHEMA,
+    },
+    required: ["headline_suggestions", "summary_rewrites", "skill_gaps", "cover_email_templates", "general_tips"],
+  },
+  fetch_job_url: {
+    type: "object",
+    properties: {
+      success: { type: "boolean" },
+      title: { type: "string" },
+      company: { type: "string" },
+      description: { type: "string" },
+      requirements: STRING_ARRAY_SCHEMA,
+      reason: { type: "string" },
+    },
+    required: ["success", "requirements"],
+  },
+};
+
+function isJsonAction(action: string): boolean {
+  return Object.prototype.hasOwnProperty.call(JSON_SCHEMAS, action);
+}
+
+async function callGemini(
+  prompt: string,
+  action: string,
+  maxTokensOverride?: number,
+): Promise<GeminiResponse> {
+  const maxTokens = maxTokensOverride ?? MAX_TOKENS_MAP[action] ?? 500;
+  const generationConfig: Record<string, unknown> = {
+    maxOutputTokens: maxTokens,
+    temperature: action === "analyze_jd" || action === "detect_new_data" || action === "parse_resume" ? 0.2 : 0.7,
+  };
+
+  if (isJsonAction(action)) {
+    generationConfig.responseMimeType = "application/json";
+    generationConfig.responseJsonSchema = JSON_SCHEMAS[action];
+  }
 
   const response = await fetch(`${GEMINI_URL}?key=${GEMINI_API_KEY}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: {
-        maxOutputTokens: maxTokens,
-        temperature: action === "analyze_jd" || action === "detect_new_data" || action === "parse_resume" ? 0.2 : 0.7,
-      },
+      generationConfig,
     }),
   });
 
@@ -248,7 +510,7 @@ Be specific and actionable. Reference actual data from their profile. Do not be 
 }
 
 function calculateCost(inputTokens: number, outputTokens: number): number {
-  return (inputTokens * 0.10 + outputTokens * 0.40) / 1_000_000;
+  return (inputTokens * 0.30 + outputTokens * 2.50) / 1_000_000;
 }
 
 interface QuotaCheckResult {
@@ -487,26 +749,6 @@ async function checkAndIncrementQuota(
   return { allowed: true };
 }
 
-function cleanJsonResponse(text: string): string {
-  let cleaned = text.trim();
-  if (cleaned.startsWith("```json")) {
-    cleaned = cleaned.slice(7);
-  } else if (cleaned.startsWith("```")) {
-    cleaned = cleaned.slice(3);
-  }
-  if (cleaned.endsWith("```")) {
-    cleaned = cleaned.slice(0, -3);
-  }
-  cleaned = cleaned.trim();
-  // Extract JSON object if surrounded by extra text
-  const firstBrace = cleaned.indexOf("{");
-  const lastBrace = cleaned.lastIndexOf("}");
-  if (firstBrace !== -1 && lastBrace !== -1 && firstBrace < lastBrace) {
-    cleaned = cleaned.slice(firstBrace, lastBrace + 1);
-  }
-  return cleaned;
-}
-
 function extractDescriptionFromHtml(html: string): string | null {
   const patterns = [
     /class="show-more-less-html__markup[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
@@ -619,20 +861,27 @@ IMPORTANT: Extract the COMPLETE and FULL description with every section of the j
 HTML CONTENT (truncated):
 ${html.substring(0, 80000)}`;
 
-    const geminiResult = await callGemini(extractPrompt, "fetch_job_url");
-    const text = geminiResult.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
-
     try {
-      return JSON.parse(cleanJsonResponse(text));
-    } catch {
-      return { success: false, reason: "parse_error" };
+      const result = await generateStructuredJson<Record<string, unknown>>((attempt) =>
+        callGemini(
+          attempt === 0 ? extractPrompt : `${extractPrompt}\n\nKeep the retry response concise while preserving every required JSON field.`,
+          "fetch_job_url",
+          attempt === 0 ? undefined : MAX_TOKENS_MAP.fetch_job_url * 2,
+        )
+      );
+      return result.data;
+    } catch (error) {
+      if (error instanceof StructuredResponseError) {
+        return { success: false, reason: error.code };
+      }
+      throw error;
     }
   } catch (error) {
     return { success: false, reason: (error as Error).message };
   }
 }
 
-Deno.serve(async (req: Request) => {
+export async function handleRequest(req: Request): Promise<Response> {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
@@ -687,7 +936,7 @@ Deno.serve(async (req: Request) => {
       await serviceClient.from("ai_usage_log").insert({
         user_id: user.id,
         function_name: action,
-        model: "gemini-2.0-flash",
+        model: GEMINI_MODEL,
         input_tokens: fetchTokenEstimate,
         output_tokens: fetchTokenEstimate,
         cost_estimate_usd: calculateCost(fetchTokenEstimate, fetchTokenEstimate),
@@ -699,55 +948,56 @@ Deno.serve(async (req: Request) => {
     }
 
     const prompt = buildPrompt(action, payload);
-    const geminiResult = await callGemini(prompt, action);
+    let responseData: ActionResponse;
+    let usageMetadata = {
+      promptTokenCount: 0,
+      candidatesTokenCount: 0,
+    };
+
+    if (isJsonAction(action)) {
+      try {
+        const result = await generateStructuredJson<ActionResponse>((attempt) =>
+          callGemini(
+            attempt === 0 ? prompt : `${prompt}\n\nKeep the retry response concise while preserving every required JSON field.`,
+            action,
+            attempt === 0 ? undefined : (MAX_TOKENS_MAP[action] ?? 500) * 2,
+          )
+        );
+        responseData = result.data;
+        usageMetadata = result.usageMetadata;
+      } catch (error) {
+        if (error instanceof StructuredResponseError) {
+          return new Response(
+            JSON.stringify({ error: error.code, retryable: true }),
+            {
+              status: 502,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
+        }
+        throw error;
+      }
+    } else {
+      const geminiResult = await callGemini(prompt, action);
+      usageMetadata = {
+        promptTokenCount: geminiResult.usageMetadata?.promptTokenCount ?? 0,
+        candidatesTokenCount: geminiResult.usageMetadata?.candidatesTokenCount ?? 0,
+      };
+      const text = geminiResult.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+      responseData = { content: text };
+    }
 
     await serviceClient.from("ai_usage_log").insert({
       user_id: user.id,
       function_name: action,
-      model: "gemini-2.0-flash",
-      input_tokens: geminiResult.usageMetadata?.promptTokenCount ?? 0,
-      output_tokens: geminiResult.usageMetadata?.candidatesTokenCount ?? 0,
+      model: GEMINI_MODEL,
+      input_tokens: usageMetadata.promptTokenCount,
+      output_tokens: usageMetadata.candidatesTokenCount,
       cost_estimate_usd: calculateCost(
-        geminiResult.usageMetadata?.promptTokenCount ?? 0,
-        geminiResult.usageMetadata?.candidatesTokenCount ?? 0
+        usageMetadata.promptTokenCount,
+        usageMetadata.candidatesTokenCount,
       ),
     });
-
-    let responseData: ActionResponse;
-    const text = geminiResult.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
-
-    switch (action) {
-      case "analyze_jd":
-      case "detect_new_data":
-      case "parse_resume":
-      case "generate_suggestions": {
-        try {
-          responseData = JSON.parse(cleanJsonResponse(text));
-        } catch (parseError) {
-          console.error(`JSON parse failed for action=${action}. Text length=${text.length}. First 500 chars: ${text.slice(0, 500)}`);
-          console.error(`Parse error: ${(parseError as Error).message}`);
-          return new Response(
-            JSON.stringify({ error: "Failed to parse AI response", raw_text: text.slice(0, 1000) }),
-            {
-              status: 502,
-              headers: { ...corsHeaders, "Content-Type": "application/json" },
-            }
-          );
-        }
-        break;
-      }
-      case "generate_cover_letter":
-      case "generate_cover_email":
-      case "answer_question": {
-        responseData = { content: text };
-        break;
-      }
-      default:
-        return new Response(JSON.stringify({ error: `Unknown action: ${action}` }), {
-          status: 400,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-    }
 
     // Add quota warning for last resume parse
     if (action === "parse_resume" && quotaResult.isLastResumeParse) {
@@ -763,4 +1013,8 @@ Deno.serve(async (req: Request) => {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
-});
+}
+
+if (import.meta.main) {
+  Deno.serve(handleRequest);
+}

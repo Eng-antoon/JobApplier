@@ -2,6 +2,7 @@ package com.aplicator.jobapplier.data.repository
 
 import com.aplicator.jobapplier.data.remote.ai.AiProxyRequest
 import com.aplicator.jobapplier.data.remote.ai.AiSuggestionsResponse
+import com.aplicator.jobapplier.data.remote.ai.AiServiceException
 import com.aplicator.jobapplier.data.remote.ai.AnalyzeJdResponse
 import com.aplicator.jobapplier.data.remote.ai.DetectNewDataResponse
 import com.aplicator.jobapplier.data.remote.ai.FetchJobUrlResponse
@@ -61,7 +62,7 @@ class AiRepositoryImpl @Inject constructor(
                 }
                 throw QuotaExceededException(quotaError)
             }
-            throw e
+            throw AiServiceException(e)
         }
         return response.body<String>()
     }

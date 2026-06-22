@@ -3,6 +3,11 @@ package com.aplicator.jobapplier.data.remote.ai
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
+class AiServiceException(cause: Throwable) : Exception(
+    "We couldn’t analyze this job right now. Please try again.",
+    cause,
+)
+
 @Serializable
 data class AnalyzeJdResponse(
     val requirements: List<String> = emptyList(),
