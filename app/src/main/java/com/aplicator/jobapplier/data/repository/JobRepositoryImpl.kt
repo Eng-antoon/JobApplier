@@ -5,11 +5,15 @@ import com.aplicator.jobapplier.data.remote.dto.GeneratedContentInsertDto
 import com.aplicator.jobapplier.data.remote.dto.JobDescriptionDto
 import com.aplicator.jobapplier.data.remote.dto.JobDescriptionInsertDto
 import com.aplicator.jobapplier.data.remote.dto.JobDescriptionUpdateDto
+import com.aplicator.jobapplier.data.remote.ai.AnalyzeJdResponse
 import com.aplicator.jobapplier.domain.model.GeneratedContent
 import com.aplicator.jobapplier.domain.model.JobDescription
+import com.aplicator.jobapplier.domain.model.MatchResult
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Order
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import javax.inject.Inject
@@ -99,17 +103,42 @@ class JobRepositoryImpl @Inject constructor(
     }
 }
 
-private fun JobDescriptionDto.toDomain() = JobDescription(
-    id = id ?: "",
-    companyName = companyName,
-    roleTitle = roleTitle,
-    rawText = rawText,
-    sourceUrl = sourceUrl,
-    status = status,
+private val mapperJson = Json { ignoreUnknownKeys = true }
+
+private fun JobDescriptionDto.toDomain(): JobDescription {
+    val decodedMatch = matchDetails?.let { element ->
+        runCatching {
+            mapperJson.decodeFromJsonElement(AnalyzeJdResponse.serializer(), element)
+        }.getOrNull()?.toMatchResult()
+    }
+    val decodedReqs = requirementsExtracted?.let { element ->
+        runCatching {
+            mapperJson.decodeFromJsonElement(ListSerializer(String.serializer()), element)
+        }.getOrDefault(emptyList())
+    } ?: emptyList()
+    return JobDescription(
+        id = id ?: "",
+        companyName = companyName,
+        roleTitle = roleTitle,
+        rawText = rawText,
+        sourceUrl = sourceUrl,
+        status = status,
+        matchScore = matchScore,
+        matchResult = decodedMatch,
+        requirementsExtracted = decodedReqs,
+        notes = notes,
+        appliedAt = appliedAt,
+        createdAt = createdAt,
+    )
+}
+
+private fun AnalyzeJdResponse.toMatchResult() = MatchResult(
+    requirements = requirements,
     matchScore = matchScore,
-    notes = notes,
-    appliedAt = appliedAt,
-    createdAt = createdAt,
+    matched = matched,
+    gaps = gaps,
+    partial = partial,
+    suggestions = suggestions,
 )
 
 private fun GeneratedContentDto.toDomain() = GeneratedContent(

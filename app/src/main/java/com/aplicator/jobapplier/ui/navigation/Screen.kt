@@ -10,6 +10,7 @@ sealed interface Screen {
     @Serializable data object Profile : Screen
     @Serializable data object Snippets : Screen
     @Serializable data class JobDetail(val jobId: String) : Screen
+    @Serializable data class JobAnalysis(val jobId: String) : Screen
     @Serializable data object AddJob : Screen
     @Serializable data object ResumeImport : Screen
     @Serializable data object AiSuggestions : Screen

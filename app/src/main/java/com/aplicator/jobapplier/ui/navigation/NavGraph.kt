@@ -49,6 +49,7 @@ import com.aplicator.jobapplier.ui.auth.LoginScreen
 import com.aplicator.jobapplier.ui.auth.SignUpScreen
 import com.aplicator.jobapplier.ui.dashboard.DashboardScreen
 import com.aplicator.jobapplier.ui.job.AddJobScreen
+import com.aplicator.jobapplier.ui.job.JobAnalysisScreen
 import com.aplicator.jobapplier.ui.job.JobDetailScreen
 import com.aplicator.jobapplier.ui.job.JobViewModel
 import com.aplicator.jobapplier.ui.profile.ProfileScreen
@@ -225,6 +226,21 @@ fun MainNavGraph(
             ) { backStackEntry ->
                 val route = backStackEntry.toRoute<Screen.JobDetail>()
                 JobDetailScreen(
+                    jobId = route.jobId,
+                    viewModel = jobViewModel,
+                    onBack = { navController.popBackStack() },
+                    onFullInsights = { navController.navigate(Screen.JobAnalysis(route.jobId)) },
+                    analyticsTracker = analyticsTracker,
+                )
+            }
+            composable<Screen.JobAnalysis>(
+                enterTransition = { slideInHorizontally(tween(NAV_ANIM_DURATION)) { it } },
+                exitTransition = { fadeOut(tween(200)) },
+                popEnterTransition = { fadeIn(tween(NAV_ANIM_DURATION)) },
+                popExitTransition = { slideOutHorizontally(tween(NAV_ANIM_DURATION)) { it } },
+            ) { backStackEntry ->
+                val route = backStackEntry.toRoute<Screen.JobAnalysis>()
+                JobAnalysisScreen(
                     jobId = route.jobId,
                     viewModel = jobViewModel,
                     onBack = { navController.popBackStack() },

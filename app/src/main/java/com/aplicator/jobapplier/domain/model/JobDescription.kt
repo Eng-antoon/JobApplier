@@ -9,6 +9,7 @@ data class JobDescription(
     val status: String = "draft",
     val matchScore: Int? = null,
     val matchResult: MatchResult? = null,
+    val requirementsExtracted: List<String> = emptyList(),
     val notes: String? = null,
     val appliedAt: String? = null,
     val createdAt: String? = null,

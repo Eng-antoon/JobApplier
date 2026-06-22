@@ -25,12 +25,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.QuestionAnswer
 import androidx.compose.material.icons.filled.Title
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -82,8 +81,6 @@ import com.aplicator.jobapplier.ui.components.defaultAiFillActions
 import com.aplicator.jobapplier.ui.components.generatedContentLabel
 import com.aplicator.jobapplier.ui.components.scoreColor
 import com.aplicator.jobapplier.ui.theme.AccentCyan
-import com.aplicator.jobapplier.ui.theme.MatchHigh
-import com.aplicator.jobapplier.ui.theme.MatchLow
 import com.mixpanel.android.sessionreplay.extensions.mpReplaySensitive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
@@ -100,6 +97,7 @@ fun JobDetailScreen(
     jobId: String,
     viewModel: JobViewModel,
     onBack: () -> Unit,
+    onFullInsights: () -> Unit = {},
     analyticsTracker: AnalyticsTracker = NoOpAnalyticsTracker,
 ) {
     val detailState by viewModel.jobDetailState.collectAsState()
@@ -256,25 +254,12 @@ fun JobDetailScreen(
                     }
                 }
 
-                detailState.matchResult?.let { match ->
-                    SaasCard(Modifier.fillMaxWidth()) {
-                        Text("Fit breakdown", style = MaterialTheme.typography.titleMedium)
-                        Spacer(Modifier.height(12.dp))
-                        SkillSection("Matched", match.matched, MatchHigh, Icons.Default.CheckCircle)
-                        SkillSection("Gaps", match.gaps, MatchLow, Icons.Default.AutoAwesome)
-                        if (match.suggestions.isNotEmpty()) {
-                            Spacer(Modifier.height(10.dp))
-                            Text("Suggestions", style = MaterialTheme.typography.labelLarge)
-                            match.suggestions.forEach { suggestion ->
-                                Text(
-                                    "• $suggestion",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(top = 4.dp),
-                                )
-                            }
-                        }
-                    }
+                SaasSecondaryButton(
+                    onClick = onFullInsights,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.Default.Insights, contentDescription = null, modifier = Modifier.size(17.dp), tint = AccentCyan)
+                    Text("Full job insights", modifier = Modifier.padding(start = 8.dp))
                 }
 
                 SaasCard(Modifier.fillMaxWidth()) {
@@ -404,27 +389,3 @@ fun JobDetailScreen(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun SkillSection(title: String, items: List<String>, color: androidx.compose.ui.graphics.Color, icon: androidx.compose.ui.graphics.vector.ImageVector) {
-    if (items.isEmpty()) return
-    Text(title, style = MaterialTheme.typography.labelLarge, color = color, fontWeight = FontWeight.SemiBold)
-    FlowRow(
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = Modifier.padding(top = 6.dp, bottom = 10.dp),
-    ) {
-        items.forEach { item ->
-            androidx.compose.material3.Surface(
-                shape = androidx.compose.foundation.shape.RoundedCornerShape(999.dp),
-                color = color.copy(alpha = 0.10f),
-                contentColor = color,
-            ) {
-                Row(Modifier.padding(horizontal = 10.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(icon, contentDescription = null, modifier = Modifier.size(14.dp))
-                    Text(item, modifier = Modifier.padding(start = 5.dp), style = MaterialTheme.typography.labelMedium)
-                }
-            }
-        }
-    }
-}
