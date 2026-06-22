@@ -14,6 +14,7 @@ import com.aplicator.jobapplier.data.remote.ai.UserQuotaRow
 import com.aplicator.jobapplier.data.repository.AiRepository
 import com.aplicator.jobapplier.data.repository.AuthRepository
 import com.aplicator.jobapplier.data.repository.JobRepository
+import com.aplicator.jobapplier.data.repository.requireSuccessfulPersistence
 import com.aplicator.jobapplier.data.repository.ProfileRepository
 import com.aplicator.jobapplier.data.repository.QuotaRepository
 import com.aplicator.jobapplier.domain.model.GeneratedContent
@@ -270,11 +271,21 @@ class JobViewModel @Inject constructor(
                 "cover_letter" -> aiRepository.generateCoverLetter(job.rawText, profile.toPromptText(), tone, null)
                 "cover_email" -> aiRepository.generateCoverEmail(job.rawText, profile.toPromptText(), tone)
                 "headline", "custom_question", "why_work_here", "strengths", "weaknesses", "motivation" ->
-                    aiRepository.answerQuestion(question ?: contentType, contentType, job.rawText, profile.toPromptText())
+                    aiRepository.answerQuestion(question ?: contentType, contentType, job.rawText, profile.toPromptText(), tone)
                 else -> aiRepository.generateCoverLetter(job.rawText, profile.toPromptText(), tone, null)
             }
 
-            result
+            result.requireSuccessfulPersistence { response ->
+                jobRepository.insertGeneratedContent(
+                    uid,
+                    GeneratedContent(
+                        jobId = jobId,
+                        contentType = contentType,
+                        content = response.content,
+                        tone = tone,
+                    ),
+                )
+            }
                 .onSuccess { response ->
                     _generateState.value = GenerateState(generatedText = response.content, contentType = contentType)
                     analyticsTracker.track(
@@ -288,15 +299,6 @@ class JobViewModel @Inject constructor(
                         ),
                     )
                     loadQuotaStatus()
-                    jobRepository.insertGeneratedContent(
-                        uid,
-                        GeneratedContent(
-                            jobId = jobId,
-                            contentType = contentType,
-                            content = response.content,
-                            tone = tone,
-                        )
-                    )
                     loadJobDetail(jobId)
                 }
                 .onFailure { error ->

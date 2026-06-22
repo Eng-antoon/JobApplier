@@ -10,7 +10,7 @@ interface AiRepository {
     suspend fun analyzeJobDescription(jobDescription: String, userProfile: String): Result<AnalyzeJdResponse>
     suspend fun generateCoverLetter(jobDescription: String, userProfile: String, tone: String, additionalInstructions: String?): Result<GenerateContentResponse>
     suspend fun generateCoverEmail(jobDescription: String, userProfile: String, tone: String): Result<GenerateContentResponse>
-    suspend fun answerQuestion(question: String, questionType: String?, jobDescription: String, userProfile: String): Result<GenerateContentResponse>
+    suspend fun answerQuestion(question: String, questionType: String?, jobDescription: String, userProfile: String, tone: String): Result<GenerateContentResponse>
     suspend fun detectNewData(text: String, existingProfile: String): Result<DetectNewDataResponse>
     suspend fun fetchJobFromUrl(url: String): Result<FetchJobUrlResponse>
     suspend fun generateSuggestions(userProfile: String, jobDescriptions: String?): Result<AiSuggestionsResponse>

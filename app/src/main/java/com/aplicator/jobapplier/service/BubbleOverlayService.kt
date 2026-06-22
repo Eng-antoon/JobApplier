@@ -70,6 +70,7 @@ import com.aplicator.jobapplier.data.export.GeneratedContentExport
 import com.aplicator.jobapplier.data.repository.AiRepository
 import com.aplicator.jobapplier.data.repository.AuthRepository
 import com.aplicator.jobapplier.data.repository.JobRepository
+import com.aplicator.jobapplier.data.repository.requireSuccessfulPersistence
 import com.aplicator.jobapplier.data.repository.ProfileRepository
 import com.aplicator.jobapplier.domain.model.GeneratedContent
 import com.aplicator.jobapplier.domain.model.UserProfileSnapshot
@@ -692,20 +693,22 @@ class BubbleOverlayService : LifecycleService(), SavedStateRegistryOwner {
                             questionType = action.contentType,
                             jobDescription = jobDescription,
                             userProfile = profile.toPromptText(),
+                            tone = tone,
                         )
                     }
 
-                    result
+                    result.requireSuccessfulPersistence { response ->
+                        jobRepository.insertGeneratedContent(
+                            uid,
+                            GeneratedContent(
+                                jobId = bubbleJob.jobId,
+                                contentType = action.contentType,
+                                content = response.content,
+                                tone = tone,
+                            ),
+                        )
+                    }
                         .onSuccess { response ->
-                            jobRepository.insertGeneratedContent(
-                                uid,
-                                GeneratedContent(
-                                    jobId = bubbleJob.jobId,
-                                    contentType = action.contentType,
-                                    content = response.content,
-                                    tone = tone,
-                                ),
-                            )
                             refreshBubbleContent(bubbleJob.jobId)
                             analyticsTracker.track(
                                 AnalyticsEvent(

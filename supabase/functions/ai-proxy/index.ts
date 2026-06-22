@@ -41,6 +41,15 @@ export class StructuredResponseError extends Error {
   }
 }
 
+export class GeneratedContentError extends Error {
+  readonly code = "ai_response_incomplete";
+
+  constructor(readonly requestId: string) {
+    super("The AI returned incomplete generated content");
+    this.name = "GeneratedContentError";
+  }
+}
+
 class StructuredValidationError extends Error {
   constructor(message: string) {
     super(message);
@@ -120,6 +129,62 @@ export async function generateStructuredJson<T extends Record<string, unknown>>(
   }
 
   throw new StructuredResponseError(requestId);
+}
+
+export async function generateTextContent(
+  action: string,
+  requestId: string,
+  callAttempt: (attempt: number) => Promise<GeminiResponse>,
+  minimumLength = action === "generate_cover_letter"
+    ? 500
+    : action === "generate_cover_email"
+    ? 250
+    : 80,
+): Promise<{ content: string; usageMetadata: CombinedUsageMetadata }> {
+  const usageMetadata: CombinedUsageMetadata = {
+    promptTokenCount: 0,
+    candidatesTokenCount: 0,
+    cachedContentTokenCount: 0,
+    thoughtsTokenCount: 0,
+    totalTokenCount: 0,
+  };
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const startedAt = Date.now();
+    const response = await callAttempt(attempt);
+    usageMetadata.promptTokenCount +=
+      response.usageMetadata?.promptTokenCount ?? 0;
+    usageMetadata.candidatesTokenCount +=
+      response.usageMetadata?.candidatesTokenCount ?? 0;
+    usageMetadata.cachedContentTokenCount +=
+      response.usageMetadata?.cachedContentTokenCount ?? 0;
+    usageMetadata.thoughtsTokenCount +=
+      response.usageMetadata?.thoughtsTokenCount ?? 0;
+    usageMetadata.totalTokenCount += response.usageMetadata?.totalTokenCount ??
+      0;
+
+    const candidate = response.candidates?.[0];
+    const content = candidate?.content?.parts?.map((part) => part.text ?? "")
+      .join("").trim() ?? "";
+    const finished = candidate?.finishReason === "STOP";
+    const complete = finished && content.length >= minimumLength;
+
+    console.log(
+      `Generated content attempt: requestId=${requestId}, action=${action}, attempt=${
+        attempt + 1
+      }, finishReason=${candidate?.finishReason ?? "unknown"}, durationMs=${
+        Date.now() - startedAt
+      }, textLength=${content.length}, promptTokens=${
+        response.usageMetadata?.promptTokenCount ?? 0
+      }, visibleOutputTokens=${
+        response.usageMetadata?.candidatesTokenCount ?? 0
+      }, thoughtTokens=${response.usageMetadata?.thoughtsTokenCount ?? 0}`,
+    );
+
+    if (complete) return { content, usageMetadata };
+  }
+
+  throw new GeneratedContentError(requestId);
 }
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -543,12 +608,12 @@ export function buildGenerationConfig(
         action === "parse_resume"
       ? 0.2
       : 0.7,
+    thinkingConfig: { thinkingBudget: 0 },
   };
 
   if (isJsonAction(action)) {
     generationConfig.responseMimeType = "application/json";
     generationConfig.responseJsonSchema = JSON_SCHEMAS[action];
-    generationConfig.thinkingConfig = { thinkingBudget: 0 };
   }
 
   return generationConfig;
@@ -628,10 +693,30 @@ Write the email directly. Be concise and professional.`;
 }
 
 function answerQuestionPrompt(p: Record<string, unknown>): string {
-  return `Answer this job application question based on the candidate's profile. Write in first person as the candidate. Keep the answer to 2-3 paragraphs.
+  const tone = (p.tone as string) || "professional";
+  const questionType = (p.question_type as string) || "custom_question";
+  const formatInstruction = questionType === "headline"
+    ? "Write one headline of 8-16 words."
+    : questionType === "why_work_here"
+    ? "Write 100-170 words explaining interest in this specific company and role."
+    : questionType === "strengths"
+    ? "Write 120-180 words centered on the strongest role-relevant capabilities."
+    : questionType === "motivation"
+    ? "Write 150-220 words as a focused tell-me-about-yourself answer connecting past work, current strengths, and this opportunity."
+    : "Write a direct 100-200 word answer unless the question requests another format.";
+
+  return `Answer this job application question in first person as the candidate. Tone: ${tone}.
+${formatInstruction}
+
+TAILORING RULES:
+- Identify the company and role from the job description and name them when natural.
+- Use 2-3 concrete connections between the candidate profile and the job requirements.
+- Do not invent employers, experience, achievements, metrics, qualifications, or domain knowledge.
+- You may infer reasonable motivation or interest from the role and company, but present no inferred detail as a factual experience claim.
+- Prefer specific skills and work examples over generic enthusiasm.
 
 QUESTION: ${p.question as string || ""}
-${p.question_type ? `QUESTION TYPE: ${p.question_type}` : ""}
+QUESTION TYPE: ${questionType}
 
 JOB DESCRIPTION:
 ${(p.job_description as string || "").slice(0, 4000)}
@@ -639,7 +724,7 @@ ${(p.job_description as string || "").slice(0, 4000)}
 CANDIDATE PROFILE:
 ${p.user_profile as string || ""}
 
-Write the answer directly, no preamble.`;
+Write the answer directly with no preamble, labels, placeholders, or commentary.`;
 }
 
 function detectNewDataPrompt(p: Record<string, unknown>): string {
@@ -1276,20 +1361,41 @@ export async function handleRequest(req: Request): Promise<Response> {
         throw error;
       }
     } else {
-      const geminiResult = await callGemini(prompt, action);
-      usageMetadata = {
-        promptTokenCount: geminiResult.usageMetadata?.promptTokenCount ?? 0,
-        candidatesTokenCount:
-          geminiResult.usageMetadata?.candidatesTokenCount ?? 0,
-        cachedContentTokenCount:
-          geminiResult.usageMetadata?.cachedContentTokenCount ?? 0,
-        thoughtsTokenCount: geminiResult.usageMetadata?.thoughtsTokenCount ?? 0,
-        totalTokenCount: geminiResult.usageMetadata?.totalTokenCount ?? 0,
-      };
-      const text = geminiResult.candidates?.[0]?.content?.parts?.map((part) =>
-        part.text ?? ""
-      ).join("") ?? "";
-      responseData = { content: text };
+      try {
+        const minimumLength = action === "answer_question" &&
+            payload.question_type === "headline"
+          ? 20
+          : undefined;
+        const result = await generateTextContent(
+          action,
+          requestId,
+          (attempt) =>
+            callGemini(
+              attempt === 0
+                ? prompt
+                : `${prompt}\n\nThe previous response was incomplete. Return a complete final answer within the requested length.`,
+              action,
+            ),
+          minimumLength,
+        );
+        usageMetadata = result.usageMetadata;
+        responseData = { content: result.content };
+      } catch (error) {
+        if (error instanceof GeneratedContentError) {
+          return new Response(
+            JSON.stringify({
+              error: error.code,
+              retryable: true,
+              request_id: error.requestId,
+            }),
+            {
+              status: 502,
+              headers: responseHeaders,
+            },
+          );
+        }
+        throw error;
+      }
     }
 
     await serviceClient.from("ai_usage_log").insert({

@@ -117,15 +117,11 @@ class AiRepositoryImpl @Inject constructor(
         questionType: String?,
         jobDescription: String,
         userProfile: String,
+        tone: String,
     ): Result<GenerateContentResponse> = runCatching {
         val responseText = callEdgeFunction(
             "answer_question",
-            mapOf(
-                "question" to question,
-                "question_type" to questionType,
-                "job_description" to jobDescription,
-                "user_profile" to userProfile,
-            ),
+            buildAnswerQuestionPayload(question, questionType, jobDescription, userProfile, tone),
         )
         json.decodeFromString<GenerateContentResponse>(responseText)
     }
@@ -176,3 +172,17 @@ class AiRepositoryImpl @Inject constructor(
         )
     }
 }
+
+internal fun buildAnswerQuestionPayload(
+    question: String,
+    questionType: String?,
+    jobDescription: String,
+    userProfile: String,
+    tone: String,
+): Map<String, String?> = mapOf(
+    "question" to question,
+    "question_type" to questionType,
+    "job_description" to jobDescription,
+    "user_profile" to userProfile,
+    "tone" to tone,
+)

@@ -1,7 +1,9 @@
 import {
   buildGenerationConfig,
   buildPrompt,
+  GeneratedContentError,
   generateStructuredJson,
+  generateTextContent,
   StructuredResponseError,
   validateStructuredData,
 } from "./index.ts";
@@ -50,6 +52,102 @@ Deno.test("structured job analysis disables thinking and uses bounded output", (
       `thinking was not disabled: ${JSON.stringify(config.thinkingConfig)}`,
     );
   }
+});
+
+Deno.test("application writing disables Gemini 2.5 thinking", () => {
+  for (
+    const action of [
+      "generate_cover_letter",
+      "generate_cover_email",
+      "answer_question",
+    ]
+  ) {
+    const config = buildGenerationConfig(action);
+    if (
+      JSON.stringify(config.thinkingConfig) !==
+        JSON.stringify({ thinkingBudget: 0 })
+    ) {
+      throw new Error(
+        `${action} did not disable thinking: ${JSON.stringify(config)}`,
+      );
+    }
+  }
+});
+
+Deno.test("why-work-here prompt carries tone and grounded tailoring rules", () => {
+  const prompt = buildPrompt("answer_question", {
+    question: "Why do you want to work here?",
+    question_type: "why_work_here",
+    tone: "casual",
+    job_description:
+      "Finaira needs a Senior Product Manager for AI and FinTech products.",
+    user_profile:
+      "AI Product Manager. Skills: roadmap planning and stakeholder management.",
+  });
+
+  for (
+    const expected of [
+      "Tone: casual",
+      "Finaira",
+      "Senior Product Manager",
+      "2-3 concrete connections",
+      "Do not invent",
+      "reasonable motivation",
+    ]
+  ) {
+    if (!prompt.includes(expected)) {
+      throw new Error(`tailoring instruction is missing: ${expected}`);
+    }
+  }
+});
+
+Deno.test("free-text generation retries a truncated response", async () => {
+  const replies = [
+    response("I am interested because", "MAX_TOKENS", 100, 800),
+    response(
+      "I am interested in Finaira because the Senior Product Manager role connects my AI product leadership, roadmap planning, and stakeholder management experience with its FinTech product mission.",
+      "STOP",
+      100,
+      45,
+    ),
+  ];
+
+  const result = await generateTextContent(
+    "answer_question",
+    "request-text-retry",
+    async (attempt) => replies[attempt],
+  );
+
+  if (!result.content.includes("Finaira")) {
+    throw new Error("retry content was not returned");
+  }
+  if (result.usageMetadata.candidatesTokenCount !== 845) {
+    throw new Error("retry token usage was not combined");
+  }
+});
+
+Deno.test("free-text generation rejects incomplete content after retry", async () => {
+  let attempts = 0;
+  try {
+    await generateTextContent(
+      "answer_question",
+      "request-text-invalid",
+      async () => {
+        attempts += 1;
+        return response("I am interested because", "MAX_TOKENS", 100, 800);
+      },
+    );
+    throw new Error("expected generated content failure");
+  } catch (error) {
+    if (!(error instanceof GeneratedContentError)) throw error;
+    if (error.code !== "ai_response_incomplete") {
+      throw new Error(`unexpected code: ${error.code}`);
+    }
+    if (error.requestId !== "request-text-invalid") {
+      throw new Error(`unexpected request ID: ${error.requestId}`);
+    }
+  }
+  if (attempts !== 2) throw new Error(`expected 2 attempts, got ${attempts}`);
 });
 
 Deno.test("long job descriptions keep the supported input boundary and bounded response instructions", () => {
