@@ -88,6 +88,11 @@ fun ProfileScreen(
             viewModel.clearSaveSuccess()
         }
     }
+    // Refresh on screen entry so a stale/empty load from Main entry is recovered
+    // when the user actually opens the Profile tab.
+    LaunchedEffect(Unit) {
+        viewModel.loadProfile()
+    }
     LaunchedEffect(state.error) {
         state.error?.let {
             snackbarHostState.showSnackbar(it)

@@ -1,27 +1,26 @@
-# Plan: Production Release APK (lightweight, for friend testing)
+# Plan: Fix release-only onboarding redirect (R8 strips serialization metadata)
 
-## Goal
-Generate signed, minified production APK to distribute to friends for testing. Small size priority.
+## Bug
+Signed-in existing user (`890890fb...`, `is_onboarded=true`, `full_name` set) routed to setup page in **release build only**.
 
-## Decisions
-- Generate new dedicated release keystore (reusable).
-- Single universal APK (one file, installs any device).
-- Release build already has `isMinifyEnabled=true` + `isShrinkResources=true`.
+## Root Cause (confirmed)
+- `proguard-rules.pro` has **NO** keep rules for kotlinx.serialization / Hilt / Supabase / DTOs.
+- R8 minify strips `$serializer` companion metadata for `@Serializable` DTOs (e.g. `ProfileDto`).
+- `ProfileRepositoryImpl.getProfile` → `decodeSingle<ProfileDto>()` throws (serializer missing).
+- `AuthViewModel.checkOnboardingStatus.onFailure` → `_isOnboarded = false` → `AppState.Onboarding` → setup page.
+- DB verified: `is_onboarded=true`. So failure is client-side decode, not data.
 
-## Steps
-1. Generate keystore via `keytool` → `keystore/jobapplier-release.jks`.
-2. Create `keystore/key.properties` (gitignored) holding store/key passwords + aliases.
-3. Add `keystore/` + `*.jks` + `key.properties` to `.gitignore`. (DONE)
-4. Add `signingConfigs.release` block in `app/build.gradle.kts`, wire into `buildTypes.release.signingConfig`.
-5. Run `./gradlew :app:assembleRelease`.
-6. Verify output APK exists + size in `app/build/outputs/apk/release/`.
-7. Run `coderabbit review --plain` on the build config change.
-8. Update status.md + DECISIONS.md + Obsidian.
+## Fix
+1. Add ProGuard keep rules to `app/proguard-rules.pro`:
+   - kotlinx.serialization core (Companion + serializer lookups).
+   - All `@Serializable` DTOs under `com.aplicator.jobapplier.**` + their `$$serializer`.
+   - Supabase + Ktor keeps (kotlinx-serialization based).
+   - Keep SourceFile/LineNumberTable for stack traces.
+2. Harden `AuthViewModel.checkOnboardingStatus`: on failure keep prior `isOnboarded` value (don't force false) — but primary fix is keep rules.
+3. Rebuild release, reinstall via adb, verify existing user lands on Main.
 
-## Out of scope
-- Play Store upload / .aab (user chose direct sideload).
-- Removing pdfbox/poi (needed for resume feature).
-
-## Size levers already applied
-- R8 minify, resource shrinking.
-- Universal single ABI — fine, app mostly JVM.
+## Verification
+- adb install release.
+- Sign in as `890890fb...`.
+- Confirm lands on Dashboard (Main), NOT setup.
+- Check logcat for no serialization errors.

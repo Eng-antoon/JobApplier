@@ -13,10 +13,13 @@ import com.aplicator.jobapplier.domain.model.Language
 import com.aplicator.jobapplier.domain.model.Profile
 import com.aplicator.jobapplier.domain.model.Skill
 import com.aplicator.jobapplier.domain.model.WorkExperience
+import android.util.Log
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.postgrest
 import javax.inject.Inject
 import javax.inject.Singleton
+
+private const val TAG = "ProfileRepository"
 
 @Singleton
 class ProfileRepositoryImpl @Inject constructor(
@@ -26,11 +29,17 @@ class ProfileRepositoryImpl @Inject constructor(
     private val db get() = supabaseClient.postgrest
 
     override suspend fun getProfile(userId: String): Result<Profile> = runCatching {
+        // decodeList().firstOrNull() instead of decodeSingle(): an empty result set
+        // (e.g. RLS returns 0 rows during the brief access-token propagation window
+        // right after Authenticated) would otherwise throw from decodeSingle and be
+        // indistinguishable from a real network/decode error. Treat "no row" as a
+        // distinct, typed failure the caller can retry, and never swallow the cause.
         val dto = db.from("profiles").select {
             filter { eq("id", userId) }
-        }.decodeSingle<ProfileDto>()
+        }.decodeList<ProfileDto>().firstOrNull()
+            ?: return@runCatching throw NoSuchElementException("profile not found for user $userId")
         dto.toDomain()
-    }
+    }.onFailure { Log.w(TAG, "getProfile failed for $userId", it) }
 
     override suspend fun updateProfile(userId: String, profile: Profile): Result<Unit> = runCatching {
         db.from("profiles").update(

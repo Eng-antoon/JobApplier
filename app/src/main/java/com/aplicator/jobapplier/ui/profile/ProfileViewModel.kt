@@ -17,7 +17,10 @@ import com.aplicator.jobapplier.domain.model.Profile
 import com.aplicator.jobapplier.domain.model.Skill
 import com.aplicator.jobapplier.domain.model.WorkExperience
 import dagger.hilt.android.lifecycle.HiltViewModel
+import android.util.Log
 import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -61,30 +64,70 @@ class ProfileViewModel @Inject constructor(
             .launchIn(viewModelScope)
     }
 
+    /**
+     * Load all profile data for the current user.
+     *
+     * Robust against the access-token propagation window right after `Authenticated`:
+     * await uid resolution (not the racy `currentUserOrNull()`), and retry once
+     * with a delay if the first attempt yields no profile row (RLS returns 0 rows
+     * before the token is usable). Surface list-level errors too so an empty
+     * screen is never silent.
+     */
     fun loadProfile() {
-        val uid = userId ?: return
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, error = null)
-            val profileResult = async { profileRepository.getProfile(uid) }
-            val skillsResult = async { profileRepository.getSkills(uid) }
-            val experiencesResult = async { profileRepository.getWorkExperiences(uid) }
-            val educationResult = async { profileRepository.getEducation(uid) }
-            val certsResult = async { profileRepository.getCertifications(uid) }
-            val langsResult = async { profileRepository.getLanguages(uid) }
-
-            val newState = ProfileUiState(
-                isLoading = false,
-                profile = profileResult.await().getOrNull(),
-                skills = skillsResult.await().getOrDefault(emptyList()),
-                experiences = experiencesResult.await().getOrDefault(emptyList()),
-                educationList = educationResult.await().getOrDefault(emptyList()),
-                certifications = certsResult.await().getOrDefault(emptyList()),
-                languages = langsResult.await().getOrDefault(emptyList()),
-                error = profileResult.await().exceptionOrNull()?.message,
-            )
-            _uiState.value = newState
-            pushSnippetsToBubble(newState)
+            val uid = authRepository.awaitCurrentUserId()
+            if (uid == null) {
+                Log.w(TAG, "loadProfile: current user id is null; skipping load")
+                _uiState.value = _uiState.value.copy(isLoading = false, error = "Not signed in")
+                return@launch
+            }
+            var state = fetchProfileState(uid)
+            if (state.profile == null) {
+                Log.w(TAG, "loadProfile: first attempt returned no profile; retrying after delay")
+                delay(PROFILE_RETRY_DELAY_MS)
+                val retry = fetchProfileState(uid)
+                if (retry.profile != null) state = retry
+            }
+            _uiState.value = state
+            pushSnippetsToBubble(state)
         }
+    }
+
+    private suspend fun fetchProfileState(uid: String): ProfileUiState = coroutineScope {
+        val profileResult = async { profileRepository.getProfile(uid) }
+        val skillsResult = async { profileRepository.getSkills(uid) }
+        val experiencesResult = async { profileRepository.getWorkExperiences(uid) }
+        val educationResult = async { profileRepository.getEducation(uid) }
+        val certsResult = async { profileRepository.getCertifications(uid) }
+        val langsResult = async { profileRepository.getLanguages(uid) }
+
+        val profile = profileResult.await()
+        val skills = skillsResult.await()
+        val experiences = experiencesResult.await()
+        val education = educationResult.await()
+        val certs = certsResult.await()
+        val langs = langsResult.await()
+
+        // Aggregate the first failure message across all fetches so an empty
+        // screen is never silent; the repo already logs each individual failure.
+        val error = profile.exceptionOrNull()?.message
+            ?: skills.exceptionOrNull()?.message
+            ?: experiences.exceptionOrNull()?.message
+            ?: education.exceptionOrNull()?.message
+            ?: certs.exceptionOrNull()?.message
+            ?: langs.exceptionOrNull()?.message
+
+        ProfileUiState(
+            isLoading = false,
+            profile = profile.getOrNull(),
+            skills = skills.getOrDefault(emptyList()),
+            experiences = experiences.getOrDefault(emptyList()),
+            educationList = education.getOrDefault(emptyList()),
+            certifications = certs.getOrDefault(emptyList()),
+            languages = langs.getOrDefault(emptyList()),
+            error = if (profile.getOrNull() == null) error else null,
+        )
     }
 
     fun updateProfile(profile: Profile) {
@@ -197,6 +240,11 @@ class ProfileViewModel @Inject constructor(
 
     fun clearError() {
         _uiState.value = _uiState.value.copy(error = null)
+    }
+
+    private companion object {
+        const val TAG = "ProfileViewModel"
+        const val PROFILE_RETRY_DELAY_MS = 1500L
     }
 
     private fun pushSnippetsToBubble(state: ProfileUiState) {

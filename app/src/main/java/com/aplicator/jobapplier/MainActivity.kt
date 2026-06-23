@@ -147,6 +147,11 @@ private fun AppRoot(
     }
 
     LaunchedEffect(sessionStatus) {
+        // Drop any persisted UI state from a previous user so a prior user's
+        // Main/Onboarding cannot mask the new user's Loading/Main window.
+        if (sessionStatus is SessionStatus.NotAuthenticated) {
+            stableState = null
+        }
         if (sessionStatus is SessionStatus.Authenticated) {
             authViewModel.checkOnboardingStatus()
         }
