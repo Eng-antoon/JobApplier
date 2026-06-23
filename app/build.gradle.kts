@@ -17,9 +17,34 @@ val localProps = Properties().apply {
     }
 }
 
+val keystoreProperties = Properties().apply {
+    val keystoreFile = rootProject.file("keystore/key.properties")
+    if (keystoreFile.exists()) {
+        FileInputStream(keystoreFile).use { load(it) }
+    }
+}
+
+val requiredReleaseSigningKeys = listOf("storeFile", "storePassword", "keyAlias", "keyPassword")
+val hasReleaseSigningConfig = requiredReleaseSigningKeys.all { keystoreProperties.getProperty(it)?.isNotBlank() == true }
+val isReleaseTask = gradle.startParameter.taskNames.any { it.contains("Release", ignoreCase = true) }
+
 android {
     namespace = "com.aplicator.jobapplier"
     compileSdk = 36
+
+    signingConfigs {
+        if (hasReleaseSigningConfig) {
+            create("release") {
+                storeFile = rootProject.file("keystore/${keystoreProperties.getProperty("storeFile")}")
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+                enableV1Signing = true
+                enableV2Signing = true
+                enableV3Signing = true
+            }
+        }
+    }
 
     defaultConfig {
         applicationId = "com.aplicator.jobapplier"
@@ -41,6 +66,14 @@ android {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
+            if (hasReleaseSigningConfig) {
+                signingConfig = signingConfigs.getByName("release")
+            } else if (isReleaseTask) {
+                throw org.gradle.api.GradleException(
+                    "Missing release signing config. Add keystore/key.properties with: " +
+                        requiredReleaseSigningKeys.joinToString()
+                )
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

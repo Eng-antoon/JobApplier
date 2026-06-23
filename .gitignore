@@ -15,3 +15,9 @@
 local.properties
 .claudecode/
 supabase/.temp/
+
+# Release signing
+/keystore/
+*.jks
+*.keystore
+key.properties
